@@ -426,6 +426,15 @@ export function canRunNimWithMemory(totalMemoryMB: number): boolean {
   return nimImages.models.some((m: NimModel) => m.minGpuMemoryMB <= totalMemoryMB);
 }
 
+// True when a `/v1/models` body is an OpenAI-style model list: a JSON object with a `data` array.
+export function isOpenAiModelList(body: string): boolean {
+  try {
+    return Array.isArray(JSON.parse(body)?.data);
+  } catch {
+    return false;
+  }
+}
+
 // First model id from a NIM `/v1/models` body, or null if absent/unparseable.
 export function parseServedModelId(modelsJson: string): string | null {
   try {
@@ -1184,7 +1193,7 @@ export function waitForNimHealth(
         ],
         { ignoreError: true },
       );
-      if (result) {
+      if (isOpenAiModelList(result)) {
         console.log("  NIM is healthy.");
         return true;
       }

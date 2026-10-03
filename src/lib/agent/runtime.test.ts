@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as onboardSession from "../state/onboard-session";
 import * as registry from "../state/registry";
 import { loadAgent } from "./defs";
 // Import source directly so tests cannot pass against a stale build.
@@ -91,6 +92,30 @@ describe("resolveSessionAgentDefinition", () => {
     expect(resolved.resolved).toBe(true);
     expect(resolved.agent).toBe(loadAgent("openclaw"));
     expect(resolved.agent?.binary_path).toBe("/usr/local/bin/openclaw");
+  });
+
+  it.each([{ agent: null }, {}])(
+    "keeps a registered OpenClaw row %j when the last onboard was another agent",
+    (row) => {
+      vi.spyOn(registry, "getSandbox").mockReturnValue(row as never);
+      vi.spyOn(onboardSession, "loadSession").mockReturnValue({ agent: "hermes" } as never);
+
+      const resolved = resolveSessionAgentDefinition("alpha", null);
+
+      expect(resolved.resolved).toBe(true);
+      expect(resolved.agent?.name).toBe("openclaw");
+    },
+  );
+
+  it("uses the onboard session agent only when the sandbox has no registry row", () => {
+    vi.spyOn(registry, "getSandbox").mockReturnValue(null);
+    vi.spyOn(onboardSession, "loadSession").mockReturnValue({ agent: "hermes" } as never);
+
+    expect(resolveSessionAgentDefinition("alpha", null)).toEqual({
+      agent: null,
+      requestedName: "hermes",
+      resolved: false,
+    });
   });
 
   it("preserves an unresolved registered agent instead of changing it to OpenClaw", () => {

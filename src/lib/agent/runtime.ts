@@ -59,7 +59,10 @@ export function resolveRegisteredAgentDefinition(
   }
 }
 
-/** Resolve OpenClaw's legacy null without hiding an invalid registered agent. */
+/**
+ * Resolve OpenClaw's legacy null without hiding an invalid registered agent.
+ * A registry row is authoritative; the onboard session applies only without one.
+ */
 export function resolveSessionAgentDefinition(
   sandboxName: string | undefined,
   agent: AgentDefinition | null,
@@ -68,7 +71,9 @@ export function resolveSessionAgentDefinition(
   let requestedName = "openclaw";
   try {
     const registered = sandboxName ? registry.getSandbox(sandboxName) : null;
-    requestedName = registered?.agent || onboardSession.loadSession()?.agent || "openclaw";
+    requestedName = registered
+      ? registered.agent || "openclaw"
+      : onboardSession.loadSession()?.agent || "openclaw";
     if (requestedName !== "openclaw") {
       return { agent: null, requestedName, resolved: false };
     }

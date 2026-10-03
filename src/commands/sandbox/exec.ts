@@ -45,8 +45,19 @@ export default class SandboxExecCommand extends NemoClawCommand {
 
   public async run(): Promise<void> {
     const originalArgv = [...this.argv];
-    const { args, flags, argv } = await this.parse(SandboxExecCommand);
+    const { args, flags, argv, raw } = await this.parse(SandboxExecCommand);
     const separatorIndex = originalArgv.indexOf("--");
+    // Everything after the first `--` is parsed as a positional, so the
+    // positionals before it are the sandbox name plus any command words. A
+    // command word there means the first `--` belongs to the command, and
+    // slicing at it would silently drop the words before it.
+    if (separatorIndex !== -1) {
+      const afterSeparator = originalArgv.length - separatorIndex - 1;
+      const beforeSeparator = raw.filter((token) => token.type === "arg").length - afterSeparator;
+      if (beforeSeparator > 1) {
+        this.error("Put -- before the command so a later -- stays part of it.", { exit: 2 });
+      }
+    }
     // oclif's non-strict parser preserves ordinary inner flags, but sorts
     // repeated unknown flags by their first input position. That turns a
     // command such as `env -u A -u B` into `env -u -u A B`. Once the caller

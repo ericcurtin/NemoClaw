@@ -136,7 +136,14 @@ function upsertRecoveredSandbox(
     }
   }
   if (existing) {
-    registry.updateSandbox(validName, entry);
+    // The persisted row wins. Recovery only fills fields the row lacks, so a
+    // stale session or a mistyped name cannot reset GPU, NIM or observability.
+    const missing = Object.fromEntries(
+      Object.entries(entry).filter(
+        ([field]) => existing[field as keyof SandboxEntry] === undefined,
+      ),
+    );
+    registry.updateSandbox(validName, missing);
     return false;
   }
   registry.registerSandbox(entry);

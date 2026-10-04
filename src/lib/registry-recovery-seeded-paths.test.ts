@@ -178,6 +178,36 @@ describe("recoverRegistryEntries seeded recovery paths", () => {
     });
   });
 
+  it("keeps persisted GPU, NIM and observability settings when a typo name triggers recovery (#12583)", async () => {
+    mockRegistryState.sandboxes.e2e = {
+      name: "e2e",
+      provider: "nvidia-prod",
+      model: "nvidia/nemotron-3-super-120b-a12b",
+      gpuEnabled: true,
+      nimContainer: "nemoclaw-nim-e2e",
+      observabilityEnabled: true,
+    };
+    vi.mocked(loadSession).mockReturnValue({
+      sandboxName: "e2e",
+      provider: "nvidia-prod",
+      model: "nvidia/nemotron-3-super-120b-a12b",
+      nimContainer: null,
+      observabilityEnabled: false,
+      steps: {
+        sandbox: { status: "complete", startedAt: null, completedAt: null, error: null },
+      },
+    } as never);
+    vi.mocked(captureOpenshell).mockReturnValue({ output: "e2e Ready", status: 0 } as never);
+
+    await recoverRegistryEntries({ requestedSandboxName: "e2x" });
+
+    expect(mockRegistryState.sandboxes.e2e).toMatchObject({
+      gpuEnabled: true,
+      nimContainer: "nemoclaw-nim-e2e",
+      observabilityEnabled: true,
+    });
+  });
+
   it("skips invalid session and live sandbox names during seeded recovery", async () => {
     mockRegistryState.sandboxes.gamma = gammaEntry([]);
     mockRegistryState.defaultSandbox = "gamma";

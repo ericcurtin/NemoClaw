@@ -773,6 +773,15 @@ describe("config export source verification (#10938)", () => {
     );
   });
 
+  it("tells the user how to export a sandbox with direct GPU (#12453)", () => {
+    expect(classifyExportRegistry(entry({ sandboxGpuEnabled: true }))).toContainEqual({
+      category: "unsupported",
+      diagnostic:
+        "V1 export does not support direct sandbox GPU. Recreate the sandbox with --no-sandbox-gpu to export it.",
+      field: "spec.sandboxes[].runtime.gpu",
+    });
+  });
+
   it.each([
     ["Hermes tool gateways", { hermesToolGateways: ["browser"] }, "spec.sandboxes[].agent.tools"],
     [

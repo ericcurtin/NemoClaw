@@ -301,6 +301,8 @@ Before deploying the YAML, prepare the destination:
 - Review destination CA trust requirements before deployment.
 
 The exporter refuses sources that require host proxy credential replay.
+It also refuses a sandbox with direct sandbox GPU, which onboarding enables by default on NVIDIA GPU hosts.
+Recreate the sandbox with `--no-sandbox-gpu` to export it.
 Experimental runtime identity is not supported by this export command.
 For its separate OpenClaw workflow, refer to [Configure Experimental Runtime Identity](/user-guide/openclaw/reference/configure-runtime-identity).
 

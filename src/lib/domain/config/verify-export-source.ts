@@ -140,6 +140,11 @@ function finding(
   return { field, category, diagnostic };
 }
 
+function unsupportedCapability(field: string, capability: string, hint?: string): ExportFinding {
+  const diagnostic = `V1 export does not support ${capability}.`;
+  return finding(field, "unsupported", hint ? `${diagnostic} ${hint}` : diagnostic);
+}
+
 function nonEmpty(findings: ExportFinding[]): NonEmptyExportFindings {
   const [first, ...rest] = findings;
   if (!first) throw new Error("An export rejection must contain a finding.");
@@ -192,9 +197,7 @@ function classifyHermesExcludedCapabilities(entry: ObservedExportRegistry): Expo
         ]
       : [];
   }
-  const findings = present.map(([field, , capability]) =>
-    finding(field, "unsupported", "V1 export does not support " + capability + "."),
-  );
+  const findings = present.map(([field, , capability]) => unsupportedCapability(field, capability));
   if (entry.hermesAuthMethod === "oauth")
     findings.push(
       finding(
@@ -338,7 +341,7 @@ function validateHermesAuthentication(snapshot: QualifiedExportSnapshot): Export
 }
 
 function classifyExcludedCapabilities(entry: ObservedExportRegistry): ExportFinding[] {
-  const excluded: Array<[string, unknown, string]> = [
+  const excluded: Array<[string, unknown, string, string?]> = [
     [
       "spec.sandboxes[].runtime.customImage",
       entry.fromDockerfile,
@@ -348,6 +351,7 @@ function classifyExcludedCapabilities(entry: ObservedExportRegistry): ExportFind
       "spec.sandboxes[].runtime.gpu",
       entry.sandboxGpuEnabled || entry.sandboxGpuDevice,
       "direct sandbox GPU",
+      "Recreate the sandbox with --no-sandbox-gpu to export it.",
     ],
     ["spec.sandboxes[].mounts", entry.hostMounts, "host mounts"],
     ["spec.sandboxes[].observability", entry.observabilityEnabled, "observability"],
@@ -365,9 +369,7 @@ function classifyExcludedCapabilities(entry: ObservedExportRegistry): ExportFind
   ];
   const findings = excluded
     .filter(([, value]) => hasEntries(value))
-    .map(([field, , capability]) =>
-      finding(field, "unsupported", "V1 export does not support " + capability + "."),
-    );
+    .map(([field, , capability, hint]) => unsupportedCapability(field, capability, hint));
   return [
     ...findings,
     ...classifyHermesExcludedCapabilities(entry),

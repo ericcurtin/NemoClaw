@@ -1300,22 +1300,31 @@ function failConnectReadinessDockerRuntimeDown(sandboxName: string): never {
   process.exit(1);
 }
 
-// A terminal phase can follow from a container identity that NemoClaw refused
-// to match rather than from a crashed sandbox. Name that boundary instead of
-// steering the user to runtime logs and status (#10869).
-function failConnectReadinessTerminalPhase(
+// A readiness failure can follow from a container identity that NemoClaw
+// refused to match rather than from a crashed or slow sandbox. Returns true
+// after naming that boundary (#10869, #12799).
+function printUnmatchedContainerIdentity(
   sandboxName: string,
-  transition: string,
   { inspectDockerIdentity, retryCommand }: { inspectDockerIdentity: boolean; retryCommand: string },
-): never {
-  console.error("");
-  console.error(`  Sandbox '${sandboxName}' ${transition} state.`);
+): boolean {
   const identityLines = inspectDockerIdentity
     ? unmatchedSandboxContainerLines(sandboxName, `${CLI_NAME} ${sandboxName} ${retryCommand}`)
     : null;
-  if (identityLines) {
-    for (const line of identityLines) console.error(`  ${line}`);
-  } else {
+  if (!identityLines) return false;
+  for (const line of identityLines) console.error(`  ${line}`);
+  return true;
+}
+
+// Name the identity boundary instead of steering the user to runtime logs and
+// status (#10869).
+function failConnectReadinessTerminalPhase(
+  sandboxName: string,
+  transition: string,
+  identity: { inspectDockerIdentity: boolean; retryCommand: string },
+): never {
+  console.error("");
+  console.error(`  Sandbox '${sandboxName}' ${transition} state.`);
+  if (!printUnmatchedContainerIdentity(sandboxName, identity)) {
     console.error(`  Run:  ${CLI_NAME} ${sandboxName} logs --follow`);
     console.error(`  Run:  ${CLI_NAME} ${sandboxName} status`);
   }
@@ -2097,6 +2106,15 @@ export async function waitForSandboxReadyOrExit(
     const suggestedTimeout = Math.max(300, timeout * 2);
     console.error("");
     console.error(`  Timed out after ${timeout}s waiting for sandbox '${sandboxName}'.`);
+    // A longer timeout cannot help when no container is owned by this sandbox.
+    if (
+      printUnmatchedContainerIdentity(sandboxName, {
+        inspectDockerIdentity: allowDockerRuntimeInspection,
+        retryCommand,
+      })
+    ) {
+      process.exit(1);
+    }
     console.error("  Check: openshell sandbox list");
     console.error(
       `  Override timeout: NEMOCLAW_CONNECT_TIMEOUT=${suggestedTimeout} ${CLI_NAME} ${sandboxName} ${retryCommand}`,

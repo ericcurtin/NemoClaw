@@ -302,6 +302,22 @@ describe("promptOllamaModel size and memory annotations", () => {
     expect(menu).not.toContain("currently available");
   });
 
+  it("labels a GPU with no free memory as available, not total", async () => {
+    const setup = loadProxyWithMocks({ installed: [], promptValues: [""] });
+    active = setup;
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await setup.proxy.promptOllamaModel({
+      type: "nvidia",
+      totalMemoryMB: 81_920,
+      availableMemoryMB: 0,
+    });
+    const menu = logSpy.mock.calls.map((call: unknown[]) => String(call[0] ?? "")).join("\n");
+    expect(menu).toContain("Available GPU memory: 0 B");
+    expect(menu).toContain("exceeds available memory");
+    expect(menu).toContain("may not fit currently available GPU memory; free memory");
+    expect(menu).not.toContain("Total GPU memory");
+  });
+
   it("renders name-only for an installed tag the registry does not know", async () => {
     const setup = loadProxyWithMocks({ installed: ["my-custom:model"], promptValues: [""] });
     active = setup;

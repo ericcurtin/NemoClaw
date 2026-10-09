@@ -8,6 +8,7 @@ import {
   effectiveGpuMemoryMB,
   findOllamaModelEntry,
   fittableOllamaModelTags,
+  hasAvailableGpuMemory,
   largestFittableOllamaModelTag,
   modelFitsAvailableMemory,
   OLLAMA_DOWNLOAD_SIZE_FALLBACK_BYTES,
@@ -110,10 +111,28 @@ describe("effectiveGpuMemoryMB", () => {
     expect(effectiveGpuMemoryMB({ type: "nvidia", totalMemoryMB: 32_768 })).toBe(32_768);
   });
 
-  it("ignores zero or negative availableMemoryMB so the caller's totalMemoryMB still wins", () => {
+  it("keeps a real zero availableMemoryMB instead of falling back to total", () => {
     expect(
       effectiveGpuMemoryMB({ type: "nvidia", totalMemoryMB: 32_768, availableMemoryMB: 0 }),
+    ).toBe(0);
+  });
+
+  it("ignores a negative availableMemoryMB so the caller's totalMemoryMB still wins", () => {
+    expect(
+      effectiveGpuMemoryMB({ type: "nvidia", totalMemoryMB: 32_768, availableMemoryMB: -1 }),
     ).toBe(32_768);
+  });
+});
+
+describe("hasAvailableGpuMemory", () => {
+  it.each([
+    [null, false],
+    [{ type: "nvidia", totalMemoryMB: 32_768 }, false],
+    [{ type: "nvidia", totalMemoryMB: 32_768, availableMemoryMB: -1 }, false],
+    [{ type: "nvidia", totalMemoryMB: 32_768, availableMemoryMB: 0 }, true],
+    [{ type: "nvidia", totalMemoryMB: 32_768, availableMemoryMB: 1 }, true],
+  ])("reports %j as %s", (gpu, expected) => {
+    expect(hasAvailableGpuMemory(gpu)).toBe(expected);
   });
 });
 
@@ -188,6 +207,16 @@ describe("modelFitsAvailableMemory", () => {
         type: "nvidia",
         totalMemoryMB: 131_072,
         availableMemoryMB: 12_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns false for a known model when the GPU has no free memory", () => {
+    expect(
+      modelFitsAvailableMemory("qwen3.6:35b", {
+        type: "nvidia",
+        totalMemoryMB: 81_920,
+        availableMemoryMB: 0,
       }),
     ).toBe(false);
   });

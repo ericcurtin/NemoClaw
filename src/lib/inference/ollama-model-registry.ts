@@ -68,18 +68,26 @@ export function findOllamaModelEntry(tag: string): OllamaModelEntry | null {
 }
 
 /**
+ * `true` when the host reported a free-memory reading. Detection omits the
+ * field when it cannot read one, so a reported `0` is a full GPU.
+ */
+export function hasAvailableGpuMemory(
+  gpu: GpuInfo | null,
+): gpu is GpuInfo & { availableMemoryMB: number } {
+  return typeof gpu?.availableMemoryMB === "number" && gpu.availableMemoryMB >= 0;
+}
+
+/**
  * Effective GPU memory for capacity decisions: prefer the currently
  * available figure (from `nvidia-smi memory.free` or `MemAvailable`) and
  * fall back to total when the host could not produce a usable free-memory
  * reading. Total is a worse signal — it ignores concurrent workload
  * footprints — but keeps the pre-registry behaviour on hosts where
- * `availableMemoryMB` is missing.
+ * `availableMemoryMB` is missing. A reported `0` is kept, not replaced.
  */
 export function effectiveGpuMemoryMB(gpu: GpuInfo | null): number | null {
   if (!gpu) return null;
-  if (typeof gpu.availableMemoryMB === "number" && gpu.availableMemoryMB > 0) {
-    return gpu.availableMemoryMB;
-  }
+  if (hasAvailableGpuMemory(gpu)) return gpu.availableMemoryMB;
   if (typeof gpu.totalMemoryMB === "number" && gpu.totalMemoryMB > 0) {
     return gpu.totalMemoryMB;
   }

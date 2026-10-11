@@ -17,7 +17,9 @@ import {
   ensureNativeNvidiaProvider,
   ensureNativeNvidiaProviderAttached,
   isNativeNvidiaProvider,
+  managedInferenceApiKey,
   NVIDIA_HOSTED_CREDENTIAL_ENV,
+  NVIDIA_INFERENCE_PLACEHOLDER,
   normalizeNativeNvidiaProviderAttachment,
   persistNativeNvidiaProviderAuthority,
   resolveGatewayNativeNvidiaProviderAuthority,
@@ -51,6 +53,7 @@ import {
   recomputeSandboxConfigHash,
   resolveAgentConfig,
   rewriteConfigUrlsWithDnsPinning,
+  retireNativeConfigurationTelemetry,
   SandboxConfigError,
   type OpenClawConfigUpdate,
   setOpenClawConfigValues,
@@ -83,6 +86,11 @@ import {
   createDefaultInferenceSetProviderAdapter,
   prepareInferenceSetProviderBinding,
   probeInferenceSetSandboxRoute,
+  inferenceSetModelProvenance,
+  recordInferenceSetFailure,
+  recordInferenceSetResult,
+  recordInferenceSetChange,
+  completeInferenceSetTelemetry,
   probeInferenceSetSandboxRouteUntilConverged,
   providerCommitMayHaveChangedBinding,
   type RuntimeProviderBundleRegistry,
@@ -690,7 +698,14 @@ function buildProviderConfig(
   const providerConfig: ConfigObject = {
     ...existing,
     baseUrl: route.inferenceBaseUrl,
-    apiKey: typeof existing.apiKey === "string" && existing.apiKey ? existing.apiKey : "unused",
+    apiKey: managedInferenceApiKey(
+      route.inferenceBaseUrl,
+      typeof existing.apiKey === "string" &&
+        existing.apiKey &&
+        existing.apiKey !== NVIDIA_INFERENCE_PLACEHOLDER
+        ? existing.apiKey
+        : "unused",
+    ),
     api: route.inferenceApi,
     models:
       selectedIndex < 0
@@ -1576,6 +1591,7 @@ async function runInferenceSetWithoutHostLock(
   let appliedInferenceSelection = false;
   let ambiguousInferenceSelection = false;
   let restoredSelectionAfterProviderFailure = false;
+  let providerCommitResidual = false;
   let providerMutation: Awaited<ReturnType<typeof prepareInferenceSetProviderBinding>> | null =
     null;
   let assertProviderCurrentBeforeSelection: (() => Promise<void>) | null = null;
@@ -1698,6 +1714,7 @@ async function runInferenceSetWithoutHostLock(
         await providerMutation.commit();
         appliedProvider = true;
       } catch (providerError) {
+        providerCommitResidual = providerCommitMayHaveChangedBinding(providerError);
         const restoreFailure = await restorePreviousInferenceSelection();
         restoredSelectionAfterProviderFailure = restoreFailure === null;
         throw providerCommitFailureAfterSelection({
@@ -1788,6 +1805,12 @@ async function runInferenceSetWithoutHostLock(
       ...inferenceSelectionRegistryFields({
         provider,
         model,
+        modelSelectionProvenance: inferenceSetModelProvenance({
+          model,
+          provider,
+          endpointUrl: registryMetadata.endpointUrl ?? null,
+          preferredInferenceApi,
+        }),
         endpointUrl: registryMetadata.endpointUrl ?? null,
         endpointSource: registryMetadata.endpointSource ?? null,
         credentialEnv: registryMetadata.credentialEnv ?? null,
@@ -1995,11 +2018,33 @@ async function runInferenceSetWithoutHostLock(
           `Hermes configuration did not fully converge. Run '${CLI_NAME} ${sandboxName} rebuild' to converge it.`,
       );
     }
+    recordInferenceSetChange(
+      sandboxName,
+      [
+        patched.changed,
+        retryingOpenClawConfigSync,
+        appliedProvider,
+        rollbackRoute?.provider !== provider,
+        rollbackRoute?.model !== model,
+        previousProvider !== provider,
+        previousModel !== model,
+        previousInferenceApi !== preferredInferenceApi,
+        (entry.endpointUrl ?? null) !== (registryMetadata.endpointUrl ?? null),
+      ],
+      expectedGatewayName,
+    );
+    retireNativeConfigurationTelemetry(sandboxName, expectedGatewayName);
     return {
       ...mutation,
       openClawConfigSyncPending: inSandboxConfigSynced && openClawConfigSyncPending,
     };
   } catch (error) {
+    recordInferenceSetFailure(
+      sandboxName,
+      Boolean(appliedInferenceSelection || appliedProvider || providerCommitResidual),
+      Boolean(ambiguousInferenceSelection || providerMutation),
+      expectedGatewayName,
+    );
     if (error instanceof OpenClawInferenceConfigSyncError) throw error;
     await restorePreviousNativeNvidiaAfterFailedPublish({
       detached: previousNativeNvidiaDetached,
@@ -2028,7 +2073,9 @@ async function runInferenceSetWithoutHostLock(
       if (providerMutation.action === "create") {
         try {
           await providerMutation.rollback();
+          recordInferenceSetResult(sandboxName, "failed", "unchanged", expectedGatewayName);
         } catch (rollbackError) {
+          recordInferenceSetResult(sandboxName, "failed", "partial", expectedGatewayName);
           const rollbackDetail =
             rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
           throw new InferenceSetError(`${detail}\n  ${rollbackDetail}`, exitCode);
@@ -2109,12 +2156,18 @@ export async function runInferenceSet(
     // Retain the outer sandbox lifecycle lock so another process cannot replace
     // this sandbox between the committed write, an optional restart, and
     // device-scope convergence.
-    await completeInferencePostCommit(mutation, deps);
-    // The agent config has converged once post-commit work succeeds. Do not
-    // leave its recovery marker pending if later provider cleanup fails.
-    if (mutation.openClawConfigSyncPending) {
-      clearOpenClawConfigSyncPending(selected.sandboxName, deps);
+    try {
+      await completeInferencePostCommit(mutation, deps);
+      // The agent config has converged once post-commit work succeeds. Do not
+      // leave its recovery marker pending if later provider cleanup fails.
+      if (mutation.openClawConfigSyncPending) {
+        clearOpenClawConfigSyncPending(selected.sandboxName, deps);
+      }
+    } catch (error) {
+      recordInferenceSetResult(selected.sandboxName, "failed", "partial", gatewayName);
+      throw error;
     }
+    completeInferenceSetTelemetry(selected.sandboxName, gatewayName);
     return mutation.result;
   });
 }

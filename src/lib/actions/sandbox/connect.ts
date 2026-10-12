@@ -116,6 +116,7 @@ import { printGatewayWedgeDiagnostics } from "./gateway-wedge-diagnostics";
 import {
   createProbeTimingRecorder,
   createBoundLaunchReadinessDeps,
+  describeUnknownLaunchAgent,
   formatLaunchReadinessUnsafeAuthorityEvidence,
   inspectLaunchReadiness,
   portableOpenClawPairingIncompleteMessage,
@@ -3080,9 +3081,11 @@ async function prepareConnectSandboxWithinLifecycleFence(
     }
     if (publication.kind === "validation-failed") {
       probeTiming!.markFailureStage("publication");
-      const failedCheck = publication.failedCheck
-        ? ` because the ${publication.failedCheck} failed`
-        : ` due to ${publication.category}`;
+      const failedCheck = publication.unknownAgent
+        ? ` because ${describeUnknownLaunchAgent(publication.unknownAgent)}`
+        : publication.failedCheck
+          ? ` because the ${publication.failedCheck} failed`
+          : ` due to ${publication.category}`;
       console.error(`  Probe failed: final launch-readiness validation failed${failedCheck}.`);
       process.exit(1);
     }

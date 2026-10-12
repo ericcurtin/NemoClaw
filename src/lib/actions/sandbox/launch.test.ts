@@ -56,6 +56,7 @@ vi.mock("./launch-readiness", () => ({
     capture,
     commandExecutor,
   }),
+  describeUnknownLaunchAgent: (agent: { name: string }) => `unknown agent ${agent.name}`,
   formatLaunchReadinessUnsafeAuthorityEvidence: (evidence?: { observedMode?: string | null }) =>
     evidence
       ? ` persistent receipt evidence: observed mode ${evidence.observedMode}`
@@ -1233,6 +1234,31 @@ describe("launchSandbox", () => {
     );
 
     expect(mocks.prepareInteractiveSession).toHaveBeenCalled();
+    expect(mocks.startSandboxExec).not.toHaveBeenCalled();
+  });
+
+  it("names an unknown launch agent and does not suggest a retry", async () => {
+    mocks.inspectLaunchReadiness.mockResolvedValue({
+      kind: "fallback",
+      category: "config",
+      fence: { epochId: "a".repeat(64) },
+      gatewayName: "nemoclaw",
+      gatewayPort: 8080,
+      fenceFailed: false,
+      recoveryBlocked: false,
+    });
+    mocks.publishLaunchReadiness.mockResolvedValue({
+      kind: "validation-failed",
+      category: "config",
+      unknownAgent: { name: "missing-launch-agent", available: ["openclaw", "hermes"] },
+    });
+
+    const failure = launchSandbox("alpha");
+
+    await expect(failure).rejects.toThrow(
+      "Launch readiness refused sandbox 'alpha': unknown agent missing-launch-agent.",
+    );
+    await expect(failure).rejects.not.toThrow("Retry launch");
     expect(mocks.startSandboxExec).not.toHaveBeenCalled();
   });
 

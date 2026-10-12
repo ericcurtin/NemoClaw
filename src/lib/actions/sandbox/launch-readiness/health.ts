@@ -55,6 +55,16 @@ export type LaunchReadinessCaptureResult = ReturnType<typeof captureOpenshell>;
 
 export type LaunchReadinessFailedCheck = "inference request";
 
+export type LaunchReadinessUnknownAgent = Readonly<{
+  name: string;
+  available: readonly string[];
+}>;
+
+/** Name the rejected registry agent. JSON quoting escapes control characters in the untrusted value. */
+export function describeUnknownLaunchAgent(agent: LaunchReadinessUnknownAgent): string {
+  return `the recorded launch agent ${JSON.stringify(agent.name)} is not a known NemoClaw agent (available: ${agent.available.join(", ")})`;
+}
+
 export type LaunchReadinessObservationStage =
   | "sandbox-identity"
   | "policy-get"
@@ -137,6 +147,7 @@ export class LaunchReadinessObservationError extends Error {
   constructor(
     readonly category: LaunchReadinessObservationCategory,
     readonly failedCheck?: LaunchReadinessFailedCheck,
+    readonly unknownAgent?: LaunchReadinessUnknownAgent,
   ) {
     super(category);
   }
@@ -202,7 +213,12 @@ export function resolveTrustedLaunchAgent(
   agentName = normalizedString(entry.agent) ?? "openclaw",
 ): AgentDefinition {
   const available = (deps.listAgents ?? listAgents)();
-  if (!available.includes(agentName)) throw new LaunchReadinessObservationError("config");
+  if (!available.includes(agentName)) {
+    throw new LaunchReadinessObservationError("config", undefined, {
+      name: agentName,
+      available,
+    });
+  }
   let agent: AgentDefinition;
   try {
     agent = (deps.loadAgent ?? loadAgent)(agentName);

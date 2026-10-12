@@ -38,6 +38,7 @@ import {
 import { getKnownSandboxTarget } from "./gateway-target";
 import {
   createBoundLaunchReadinessDeps,
+  describeUnknownLaunchAgent,
   formatLaunchReadinessUnsafeAuthorityEvidence,
   inspectLaunchReadiness,
   publicationFromDecision,
@@ -456,8 +457,12 @@ async function prepareLaunchSession(
       );
     }
     if (gated.value.publication?.kind === "validation-failed") {
+      const { category, unknownAgent } = gated.value.publication;
+      // A registry entry naming an unknown agent stays unknown on every retry.
       throw new Error(
-        `Launch readiness final validation failed due to ${gated.value.publication.category}. Retry launch.`,
+        unknownAgent
+          ? `Launch readiness refused sandbox '${sandboxName}': ${describeUnknownLaunchAgent(unknownAgent)}. Nothing ran in the sandbox. Repair its registry entry or recreate it.`
+          : `Launch readiness final validation failed due to ${category}. Retry launch.`,
       );
     }
     session = gated.value.prepared;

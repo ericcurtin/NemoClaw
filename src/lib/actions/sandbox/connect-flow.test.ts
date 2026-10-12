@@ -783,6 +783,24 @@ describe("connectSandbox flow", () => {
     );
   });
 
+  it("probe-only names the unknown launch agent", async () => {
+    const harness = createConnectHarness({
+      readinessPublicationResult: {
+        kind: "validation-failed",
+        category: "config",
+        unknownAgent: { name: "missing-launch-agent", available: ["openclaw", "hermes"] },
+      },
+    });
+
+    await expect(harness.connectSandbox("alpha", { probeOnly: true })).rejects.toThrow(
+      "process.exit(1)",
+    );
+
+    expect(harness.errorSpy.mock.calls.flat().join("\n")).toContain(
+      'final launch-readiness validation failed because the recorded launch agent "missing-launch-agent" is not a known NemoClaw agent (available: openclaw, hermes)',
+    );
+  });
+
   it("records OpenClaw readiness observations through final publication (#10612)", async () => {
     const harness = createConnectHarness();
     harness.inspectLaunchReadinessSpy.mockImplementationOnce(async (...args: unknown[]) => {

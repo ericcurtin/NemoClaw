@@ -63,6 +63,7 @@ import {
   type LaunchReadinessFailedCheck,
   type LaunchReadinessHealthDeps,
   type LaunchReadinessObservationStage,
+  type LaunchReadinessUnknownAgent,
   LaunchReadinessObservationError as ObservationError,
   recordLaunchReadinessObservationFailure,
   getNativeProviderAttachment,
@@ -88,6 +89,7 @@ import {
 export { createProbeTimingRecorder, type ProbeTimingRecorder } from "./probe/timing";
 export { createBoundLaunchReadinessDeps };
 export {
+  describeUnknownLaunchAgent,
   getNativeProviderAttachment,
   requireNativeInferenceHealth,
 } from "./launch-readiness/health";
@@ -167,6 +169,7 @@ export type LaunchReadinessPublicationResult =
       kind: "validation-failed";
       category: "identity" | "config" | "health" | "session";
       failedCheck?: LaunchReadinessFailedCheck;
+      unknownAgent?: LaunchReadinessUnknownAgent;
     }
   | { kind: "policy-observation-failed"; error: OpenShellSandboxError }
   | {
@@ -969,12 +972,14 @@ function debugDecision(category: LaunchReadinessDecisionCategory): void {
 function publicationValidationCategory(error: unknown): {
   category: LaunchReadinessPublicationValidationCategory;
   failedCheck?: LaunchReadinessFailedCheck;
+  unknownAgent?: LaunchReadinessUnknownAgent;
 } | null {
   if (!(error instanceof ObservationError)) return null;
   if (!["identity", "config", "health", "session"].includes(error.category)) return null;
   return {
     category: error.category as LaunchReadinessPublicationValidationCategory,
     ...(error.failedCheck ? { failedCheck: error.failedCheck } : {}),
+    ...(error.unknownAgent ? { unknownAgent: error.unknownAgent } : {}),
   };
 }
 

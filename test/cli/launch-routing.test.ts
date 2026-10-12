@@ -220,7 +220,7 @@ describe("CLI launch routing process contracts (#6006)", () => {
 
       expect(result.code).toBe(1);
       expect(result.out).toMatch(
-        /(?:Cannot resolve an interactive command for unsupported agent "mystery-agent; echo pwned"\.|Launch readiness final validation failed due to config\.)/,
+        /(?:Cannot resolve an interactive command for unsupported agent "mystery-agent; echo pwned"\.|Launch readiness refused sandbox 'alpha': the recorded launch agent "mystery-agent; echo pwned" is not a known NemoClaw agent \(available: )/,
       );
       expect(harness.launchExecArgv()).toBeNull();
       expect(harness.callLines().some((call) => call.includes("--tty"))).toBe(false);

@@ -224,6 +224,44 @@ describe("describeStaleUpgrade version-change labeling (#6520)", () => {
     ).toBe("v2026.6.10 → v2026.5.1 (downgrade)");
   });
 
+  it("labels a move from a release to its prerelease as a downgrade", () => {
+    expect(
+      describeStaleUpgrade({
+        name: "my-assistant",
+        running: false,
+        current: "0.0.134",
+        expected: "0.0.134-rc.1",
+        reasons: ["agent-version"],
+      }),
+    ).toBe("v0.0.134 → v0.0.134-rc.1 (downgrade)");
+  });
+
+  it("does not label a move from a prerelease to its release as a downgrade", () => {
+    expect(
+      describeStaleUpgrade({
+        name: "my-assistant",
+        running: false,
+        current: "2026.6.10",
+        expected: "2026.6.10",
+        reasons: ["image-drift"],
+        imageCurrent: "0.0.134-rc.1",
+        imageExpected: "0.0.134",
+      }),
+    ).toBe("v2026.6.10 unchanged; NemoClaw image v0.0.134-rc.1 → v0.0.134");
+  });
+
+  it("orders a version that is not SemVer by its dotted numbers", () => {
+    expect(
+      describeStaleUpgrade({
+        name: "my-assistant",
+        running: false,
+        current: "1.2.3.4",
+        expected: "1.2.3.3",
+        reasons: ["agent-version"],
+      }),
+    ).toBe("v1.2.3.4 → v1.2.3.3 (downgrade)");
+  });
+
   it("keeps upgrade descriptions unchanged", () => {
     expect(
       describeStaleUpgrade({

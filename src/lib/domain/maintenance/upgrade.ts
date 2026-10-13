@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import { compareSemver, parsePublicVersion } from "../installer/version";
 import type { UpgradeSandboxesOptions } from "../lifecycle/options";
 
 export type SandboxVersionCheck = {
@@ -162,7 +163,12 @@ export function compareDottedVersions(a: string, b: string): number {
 // the sandbox); call it out instead of framing it as a routine upgrade step.
 function downgradeSuffix(current?: string | null, expected?: string | null): string {
   if (!current || !expected) return "";
-  return compareDottedVersions(expected, current) < 0 ? " (downgrade)" : "";
+  // Order by SemVer so a prerelease sorts below its release; plain dotted
+  // numbers cover versions that are not SemVer.
+  const from = parsePublicVersion(current);
+  const to = parsePublicVersion(expected);
+  const order = from && to ? compareSemver(to, from) : compareDottedVersions(expected, current);
+  return order < 0 ? " (downgrade)" : "";
 }
 
 /**

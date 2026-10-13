@@ -35,6 +35,80 @@ export function versionGte(actual: string, minimum: string): boolean {
   return true;
 }
 
+/**
+ * `getVersion()` can return SemVer metadata or git-describe output, which
+ * `versionGte` rejects. Parse the complete public version format for this guard.
+ */
+const PUBLIC_VERSION =
+  /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*))?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
+/** A git-describe suffix identifies commits after its base tag. */
+const DESCRIBED_VERSION = /^(.*)-\d+-g[0-9a-f]{7,64}$/;
+
+export interface ParsedPublicVersion {
+  describedAfterTag: boolean;
+  normalized: string;
+  prerelease: readonly string[];
+  release: readonly [number, number, number];
+}
+
+export function parsePublicVersion(version: string): ParsedPublicVersion | null {
+  const normalized = normalizeVersion(version);
+  const described = DESCRIBED_VERSION.exec(normalized);
+  const match = PUBLIC_VERSION.exec(described?.[1] ?? normalized);
+  if (!match) return null;
+  const releaseParts = [match[1], match[2], match[3]] as const;
+  if (releaseParts.some((part) => part.length > 1 && part.startsWith("0"))) return null;
+  const prerelease = match[4] ? match[4].split(".") : [];
+  if (
+    prerelease.some(
+      (identifier) =>
+        /^\d+$/.test(identifier) && identifier.length > 1 && identifier.startsWith("0"),
+    )
+  ) {
+    return null;
+  }
+  const release = releaseParts.map(Number) as [number, number, number];
+  if (release.some((part) => !Number.isSafeInteger(part))) return null;
+  return {
+    describedAfterTag: described !== null,
+    normalized,
+    prerelease,
+    release,
+  };
+}
+
+function comparePrereleaseIdentifier(left: string, right: string): number {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) {
+    const normalizedLeft = left.replace(/^0+(?=\d)/, "");
+    const normalizedRight = right.replace(/^0+(?=\d)/, "");
+    if (normalizedLeft.length !== normalizedRight.length) {
+      return Math.sign(normalizedLeft.length - normalizedRight.length);
+    }
+    return normalizedLeft < normalizedRight ? -1 : normalizedLeft > normalizedRight ? 1 : 0;
+  }
+  if (leftNumeric) return -1;
+  if (rightNumeric) return 1;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function compareSemver(left: ParsedPublicVersion, right: ParsedPublicVersion): number {
+  for (let index = 0; index < 3; index += 1) {
+    const difference = Math.sign(left.release[index] - right.release[index]);
+    if (difference !== 0) return difference;
+  }
+  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
+  if (left.prerelease.length === 0) return 1;
+  if (right.prerelease.length === 0) return -1;
+  const shared = Math.min(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < shared; index += 1) {
+    const difference = comparePrereleaseIdentifier(left.prerelease[index], right.prerelease[index]);
+    if (difference !== 0) return difference;
+  }
+  return Math.sign(left.prerelease.length - right.prerelease.length);
+}
+
 export function checkInstallerRuntime(input: {
   minNodeVersion?: string;
   minNpmMajor?: number;

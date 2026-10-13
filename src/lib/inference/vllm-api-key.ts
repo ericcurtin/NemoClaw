@@ -8,7 +8,10 @@ import path from "node:path";
 
 import { DEFAULT_GATEWAY_PORT } from "../core/ports";
 import { nemoclawStateRoot } from "../state/state-root";
-import { ensureLocalAdapterStateDir } from "./local-adapter-lifecycle";
+import {
+  ensureLocalAdapterStateDir,
+  publishLocalAdapterFileExclusive,
+} from "./local-adapter-lifecycle";
 import { DUAL_STATION_VLLM_API_KEY_FILE } from "./vllm-station-runtime-receipt-path";
 
 export const DUAL_STATION_VLLM_API_KEY_PATTERN = /^[a-f0-9]{64}$/;
@@ -102,30 +105,12 @@ export function ensureDualStationVllmApiKey(options: DualStationVllmApiKeyOption
     throw new Error("Could not generate a valid managed vLLM API key");
   }
 
-  const filePath = dualStationVllmApiKeyPath(stateDir);
-  const noFollow = fs.constants.O_NOFOLLOW;
-  if (typeof noFollow !== "number") {
-    throw new Error("Secure no-follow file opens are unavailable on this platform");
-  }
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(
-      filePath,
-      fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow,
-      0o600,
-    );
-    const opened = fs.fstatSync(fd);
-    assertPrivateRegularFile(opened, filePath);
-    fs.writeFileSync(fd, `${value}\n`, "utf8");
-    fs.fsyncSync(fd);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      const raced = loadDualStationVllmApiKey({ stateDir });
-      if (raced) return raced;
-    }
-    throw error;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
+  if (
+    !publishLocalAdapterFileExclusive(stateDir, dualStationVllmApiKeyPath(stateDir), `${value}\n`)
+  ) {
+    const raced = loadDualStationVllmApiKey({ stateDir });
+    if (raced) return raced;
+    throw new Error("Managed vLLM API key changed during creation");
   }
 
   const persisted = loadDualStationVllmApiKey({ stateDir });

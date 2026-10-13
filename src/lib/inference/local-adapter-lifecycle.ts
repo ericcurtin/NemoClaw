@@ -147,6 +147,62 @@ export function writeLocalAdapterSecretFile(filePath: string, value: string): vo
   writePrivateLocalAdapterFile(filePath, `${value}\n`);
 }
 
+export function fsyncLocalAdapterDirectory(directory: string): void {
+  const descriptor = fs.openSync(directory, "r");
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+/** Create `temporary` as a new owner-only file holding `value`, flushed to disk. */
+export function writeLocalAdapterTemporaryFile(temporary: string, value: string): void {
+  const noFollow = fs.constants.O_NOFOLLOW;
+  if (typeof noFollow !== "number") {
+    throw new Error("Secure no-follow file opens are unavailable on this platform");
+  }
+  let descriptor: number | null = null;
+  try {
+    descriptor = fs.openSync(
+      temporary,
+      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow,
+      0o600,
+    );
+    fs.writeFileSync(descriptor, value, "utf8");
+    fs.fsyncSync(descriptor);
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+  }
+}
+
+/**
+ * Publish an owner-only file at `target` only if it is absent. The value is staged in a private
+ * temporary file and hard-linked into place, so no reader sees a partial file. Returns false when
+ * `target` already exists.
+ */
+export function publishLocalAdapterFileExclusive(
+  directory: string,
+  target: string,
+  value: string,
+): boolean {
+  const temporary = path.join(directory, `.${path.basename(target)}.${crypto.randomUUID()}.tmp`);
+  try {
+    writeLocalAdapterTemporaryFile(temporary, value);
+    try {
+      fs.linkSync(temporary, target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+    fs.unlinkSync(temporary);
+    fsyncLocalAdapterDirectory(directory);
+    return true;
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
 export function readLocalAdapterTextFile(filePath: string): string | null {
   try {
     if (!fs.existsSync(filePath)) return null;

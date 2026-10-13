@@ -22,6 +22,7 @@ function temporaryDirectory(): string {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.doUnmock("node:fs");
   vi.resetModules();
   for (const directory of temporaryDirectories.splice(0)) {
@@ -44,6 +45,39 @@ describe("dual-Station vLLM API key persistence", () => {
     );
     expect(fs.statSync(stateDir).mode & 0o777).toBe(0o700);
     expect(fs.statSync(dualStationVllmApiKeyPath(stateDir)).mode & 0o777).toBe(0o600);
+  });
+
+  it("leaves no key file when creation is interrupted before the key is written", () => {
+    const stateDir = path.join(temporaryDirectory(), "state");
+    vi.spyOn(fs, "writeFileSync").mockImplementationOnce(() => {
+      throw new Error("interrupted");
+    });
+
+    expect(() =>
+      ensureDualStationVllmApiKey({ stateDir, randomBytes: () => Buffer.alloc(32, 0xab) }),
+    ).toThrow("interrupted");
+
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(
+      ensureDualStationVllmApiKey({ stateDir, randomBytes: () => Buffer.alloc(32, 0xcd) }),
+    ).toBe("cd".repeat(32));
+  });
+
+  it("returns the existing key when another process creates it first", () => {
+    const stateDir = path.join(temporaryDirectory(), "state");
+    const filePath = dualStationVllmApiKeyPath(stateDir);
+    const winner = "cd".repeat(32);
+
+    const key = ensureDualStationVllmApiKey({
+      stateDir,
+      randomBytes: () => {
+        fs.writeFileSync(filePath, `${winner}\n`, { mode: 0o600 });
+        return Buffer.alloc(32, 0xab);
+      },
+    });
+
+    expect(key).toBe(winner);
+    expect(fs.readdirSync(stateDir)).toEqual([path.basename(filePath)]);
   });
 
   it("returns null when no key has been provisioned", () => {

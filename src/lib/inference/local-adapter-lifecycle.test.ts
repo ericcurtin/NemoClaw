@@ -19,6 +19,7 @@ import {
   localAdapterTokenHash,
   persistLocalAdapterPid,
   probeLocalAdapterHealth,
+  publishLocalAdapterFileExclusive,
   readLocalAdapterJsonFile,
   readLocalAdapterTextFile,
   spawnDetachedNodeAdapter,
@@ -382,6 +383,20 @@ describe("ensureLocalAdapterStateDir", () => {
       ).toThrow();
       expect(fs.readFileSync(controlled, "utf8")).toBe("unchanged\n");
     });
+  });
+});
+
+describe.skipIf(process.platform === "win32")("publishLocalAdapterFileExclusive", () => {
+  it("publishes an owner-only file once and keeps the first value", () => {
+    const dir = tempDir();
+    const target = path.join(dir, "key");
+
+    expect(publishLocalAdapterFileExclusive(dir, target, "first\n")).toBe(true);
+    expect(publishLocalAdapterFileExclusive(dir, target, "second\n")).toBe(false);
+
+    expect(fs.readFileSync(target, "utf8")).toBe("first\n");
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir)).toEqual(["key"]);
   });
 });
 

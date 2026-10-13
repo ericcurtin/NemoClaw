@@ -13,7 +13,10 @@ import {
 import { withMcpLifecycleLockSync } from "../../state/mcp-lifecycle-lock-acquisition";
 import {
   ensureLocalAdapterStateDir,
+  fsyncLocalAdapterDirectory,
+  publishLocalAdapterFileExclusive,
   resolveLocalAdapterStateRoot,
+  writeLocalAdapterTemporaryFile,
 } from "../local-adapter-lifecycle";
 
 export const MANAGED_LLAMA_CPP_STATE_DIRECTORY = "managed-llama-cpp" as const;
@@ -21,7 +24,6 @@ export const MANAGED_LLAMA_CPP_API_KEY_FILE = "api-key" as const;
 export const MANAGED_LLAMA_CPP_OWNER_FILE = "owner.json" as const;
 export const MANAGED_LLAMA_CPP_RECEIPT_FILE = "receipt.json" as const;
 
-const FILE_MODE = 0o600;
 const MAX_STATE_BYTES = 64 * 1024;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SAFE_SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -128,52 +130,6 @@ function readPrivateFile(target: string): string | null {
   }
 }
 
-function fsyncDirectory(directory: string): void {
-  const descriptor = fs.openSync(directory, "r");
-  try {
-    fs.fsyncSync(descriptor);
-  } finally {
-    fs.closeSync(descriptor);
-  }
-}
-
-function writePrivateTemporaryFile(temporary: string, value: string): void {
-  const noFollow = fs.constants.O_NOFOLLOW;
-  if (typeof noFollow !== "number") {
-    throw new Error("Managed llama.cpp requires no-follow file writes.");
-  }
-  let descriptor: number | null = null;
-  try {
-    descriptor = fs.openSync(
-      temporary,
-      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | noFollow,
-      FILE_MODE,
-    );
-    fs.writeFileSync(descriptor, value, "utf8");
-    fs.fsyncSync(descriptor);
-  } finally {
-    if (descriptor !== null) fs.closeSync(descriptor);
-  }
-}
-
-function publishExclusive(directory: string, target: string, value: string): boolean {
-  const temporary = path.join(directory, `.${path.basename(target)}.${randomUUID()}.tmp`);
-  try {
-    writePrivateTemporaryFile(temporary, value);
-    try {
-      fs.linkSync(temporary, target);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-      throw error;
-    }
-    fs.unlinkSync(temporary);
-    fsyncDirectory(directory);
-    return true;
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
-}
-
 function requirePrivateDirectory(directory: string): void {
   ensureLocalAdapterStateDir(directory);
   const status = fs.lstatSync(directory);
@@ -249,7 +205,7 @@ export function claimManagedLlamaCppOwner(
       `Managed llama.cpp on this gateway is already reserved by sandbox '${current?.sandboxName ?? "unknown"}'.`,
     );
   }
-  if (publishExclusive(paths.stateDir, paths.ownerPath, expected)) {
+  if (publishLocalAdapterFileExclusive(paths.stateDir, paths.ownerPath, expected)) {
     return Object.freeze({ owner, created: true });
   }
   const raced = readPrivateFile(paths.ownerPath);
@@ -294,9 +250,9 @@ export function bindLegacyManagedLlamaCppOwnerGpu(
         `.${path.basename(paths.ownerPath)}.${randomUUID()}.tmp`,
       );
       try {
-        writePrivateTemporaryFile(temporary, serializeOwner(upgraded));
+        writeLocalAdapterTemporaryFile(temporary, serializeOwner(upgraded));
         fs.renameSync(temporary, paths.ownerPath);
-        fsyncDirectory(paths.stateDir);
+        fsyncLocalAdapterDirectory(paths.stateDir);
       } finally {
         fs.rmSync(temporary, { force: true });
       }
@@ -321,7 +277,7 @@ export function loadOrCreateManagedLlamaCppApiKey(paths: ManagedLlamaCppStatePat
     return existing;
   }
   const value = randomBytes(32).toString("hex");
-  if (!publishExclusive(paths.stateDir, paths.apiKeyPath, `${value}\n`)) {
+  if (!publishLocalAdapterFileExclusive(paths.stateDir, paths.apiKeyPath, `${value}\n`)) {
     const raced = readPrivateFile(paths.apiKeyPath)?.trim() ?? "";
     if (!SHA256.test(raced)) throw new Error("Managed llama.cpp API-key state is malformed.");
     return raced;
@@ -370,7 +326,8 @@ export function createManagedLlamaCppReceiptWriter(
         if (existing === canonical) return existing;
         throw new Error("Managed llama.cpp receipt target already contains different authority.");
       }
-      if (publishExclusive(paths.stateDir, paths.receiptPath, canonical)) return canonical;
+      if (publishLocalAdapterFileExclusive(paths.stateDir, paths.receiptPath, canonical))
+        return canonical;
       const raced = readPrivateFile(paths.receiptPath);
       if (raced === canonical) return canonical;
       throw new Error("Managed llama.cpp receipt target changed concurrently.");

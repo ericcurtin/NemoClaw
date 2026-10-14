@@ -3,12 +3,13 @@
 
 import { closeSync, constants, fstatSync, openSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 
 import {
   textContainsCredential,
   textContainsHighConfidenceCredential,
 } from "../../security/credential-filter.js";
+import { openSqliteDatabase } from "./node-sqlite.js";
 
 function isWithinRoot(candidatePath: string, rootPath: string): boolean {
   const relative = path.relative(rootPath, candidatePath);
@@ -38,7 +39,7 @@ function databaseContainsCredential(
 ): boolean | null {
   let database: DatabaseSync | null = null;
   try {
-    database = new DatabaseSync(databasePath, {
+    database = openSqliteDatabase(databasePath, {
       allowExtension: false,
       readOnly: true,
       timeout: 2_000,

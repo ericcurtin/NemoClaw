@@ -4,7 +4,9 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+
+import { openSqliteDatabase } from "./node-sqlite.js";
 
 const MACHINE_AUTHORITY_TABLES_TO_CLEAR = [
   "apns_registration_tombstones",
@@ -47,7 +49,7 @@ export function withoutOpenClawSqliteMachineAuthority(payload: Buffer): Buffer |
   let database: DatabaseSync | null = null;
   try {
     writeFileSync(databasePath, payload, { mode: 0o600 });
-    database = new DatabaseSync(databasePath, { allowExtension: false, timeout: 2_000 });
+    database = openSqliteDatabase(databasePath, { allowExtension: false, timeout: 2_000 });
     database.exec(
       "PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = OFF; PRAGMA secure_delete = ON; BEGIN IMMEDIATE;",
     );

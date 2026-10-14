@@ -413,6 +413,94 @@ describe("platform helpers", () => {
       });
     });
 
+    describe("persisted Docker context (#12367)", () => {
+      const colimaHost = "unix:///Users/test/.colima/default/docker.sock";
+      const answers = () => ({ reachable: true, identity: "docker" as const });
+
+      it("pins the current context's socket when the default socket is missing", () => {
+        const requested: Array<string | undefined> = [];
+
+        expect(
+          detectDockerHost({
+            env: {},
+            platform: "darwin",
+            home: "/Users/test",
+            existsSync: () => false,
+            probeDockerHost: answers,
+            resolveDockerContextHost: (context) => {
+              requested.push(context);
+              return colimaHost;
+            },
+          }),
+        ).toEqual({ dockerHost: colimaHost, source: "context", socketPath: null });
+        expect(requested).toEqual([undefined]);
+      });
+
+      it("keeps the default and resolves nothing when the default socket exists", () => {
+        expect(
+          detectDockerHost({
+            env: {},
+            platform: "linux",
+            existsSync: (candidate) => candidate === "/var/run/docker.sock",
+            probeDockerHost: answers,
+            resolveDockerContextHost: () => {
+              throw new Error("an existing default socket must not resolve a context");
+            },
+          }),
+        ).toBe(null);
+      });
+
+      it.each([
+        ["the default context", "unix:///var/run/docker.sock"],
+        ["a TCP endpoint", "tcp://192.0.2.10:2375"],
+        ["an SSH endpoint", "ssh://builder@192.0.2.10"],
+        ["a relative socket", "relative.sock"],
+        ["an unresolved context", null],
+      ])("keeps the host default for %s", (_label, contextHost) => {
+        expect(
+          detectDockerHost({
+            env: {},
+            platform: "darwin",
+            home: "/Users/test",
+            existsSync: () => false,
+            probeDockerHost: answers,
+            resolveDockerContextHost: () => contextHost,
+          }),
+        ).toBe(null);
+      });
+
+      it("asks the real Docker CLI for the current context, not a named one", () => {
+        const fixtureDir = mkdtempSync(path.join(os.tmpdir(), "nemoclaw-docker-context-"));
+        try {
+          const docker = path.join(fixtureDir, "docker");
+          writeFileSync(
+            docker,
+            [
+              "#!/bin/sh",
+              'case "$1" in',
+              '  version) printf \'%s\\n\' \'{"Server":{"Platform":{"Name":"Docker Engine - Community"}}}\' ;;',
+              '  context) test "$2" = "inspect" && test "$3" = "--format" || exit 2',
+              `    printf '%s\\n' '${colimaHost}' ;;`,
+              "  *) exit 2 ;;",
+              "esac",
+            ].join("\n"),
+          );
+          chmodSync(docker, 0o755);
+
+          expect(
+            detectDockerHost({
+              env: { HOME: fixtureDir, PATH: fixtureDir },
+              platform: "darwin",
+              home: fixtureDir,
+              existsSync: () => false,
+            }),
+          ).toEqual({ dockerHost: colimaHost, source: "context", socketPath: null });
+        } finally {
+          rmSync(fixtureDir, { recursive: true, force: true });
+        }
+      });
+    });
+
     it("probes the default Docker authority with the environment real commands get (#8816, #10367)", () => {
       const fixtureDir = mkdtempSync(path.join(os.tmpdir(), "nemoclaw-docker-authority-"));
       try {

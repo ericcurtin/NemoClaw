@@ -39,8 +39,11 @@ export interface DockerHostDetection {
   socketPath: string | null;
 }
 
-/** Resolve a Docker context name to the endpoint it selects, or null. */
-export type DockerContextHostResolver = (context: string) => string | null;
+/**
+ * Resolve a Docker context name to the endpoint it selects, or null. No name
+ * resolves the Docker CLI's current context.
+ */
+export type DockerContextHostResolver = (context?: string) => string | null;
 
 export type DockerVersionIdentity = "docker" | "podman" | "unknown";
 
@@ -100,6 +103,8 @@ export function windowsProcessListensOnlyOnLoopback(
   );
 }
 
+/** The socket the gateway uses when `DOCKER_HOST` is unset. */
+const DEFAULT_DOCKER_SOCKET = "/var/run/docker.sock";
 const DOCKER_PROBE_TIMEOUT_MS = 3_000;
 const DOCKER_PROBE_MAX_BUFFER_BYTES = 1024 * 1024;
 
@@ -200,17 +205,26 @@ function buildDockerProbeEnv(
 const DOCKER_CONTEXT_HOST_FORMAT = "{{.Endpoints.docker.Host}}";
 
 /**
- * Resolve the endpoint an explicitly selected Docker context names.
+ * Resolve the endpoint a Docker context names, or the current one without a name.
  *
  * `docker context inspect` reads the local context store and never contacts a
  * daemon, so the endpoint is known before any reachability verdict exists. A
  * context that cannot be resolved has no endpoint to redirect to either, so
  * the caller keeps the host default and lets the real command report why.
  */
-function resolveDockerContextHost(context: string, source: NodeJS.ProcessEnv): string | null {
-  if (!isSupportedDockerContextName(context)) return null;
+function resolveDockerContextHost(
+  context: string | undefined,
+  source: NodeJS.ProcessEnv,
+): string | null {
+  if (context !== undefined && !isSupportedDockerContextName(context)) return null;
   const result = dockerSpawnSync(
-    ["context", "inspect", context, "--format", DOCKER_CONTEXT_HOST_FORMAT],
+    [
+      "context",
+      "inspect",
+      ...(context === undefined ? [] : [context]),
+      "--format",
+      DOCKER_CONTEXT_HOST_FORMAT,
+    ],
     {
       encoding: "utf-8",
       env: buildDockerProbeEnv(source, undefined),
@@ -307,7 +321,7 @@ function getPodmanSocketCandidates(opts: PlatformLookupOptions = {}): string[] {
   if (platform === "darwin") {
     return [
       path.join(home, ".local/share/containers/podman/machine/podman.sock"),
-      "/var/run/docker.sock",
+      DEFAULT_DOCKER_SOCKET,
     ];
   }
 
@@ -347,7 +361,7 @@ function getDockerSocketCandidates(opts: PlatformLookupOptions = {}): string[] {
     // engine; two engines that both answer still abort the selection below.
     return [
       "/run/docker.sock",
-      "/var/run/docker.sock",
+      DEFAULT_DOCKER_SOCKET,
       `/run/user/${String(uid)}/docker.sock`,
       ...getPodmanSocketCandidates({ env: opts.env, home, platform, uid: opts.uid }),
     ];
@@ -403,31 +417,40 @@ function selectDockerAuthority(opts: DockerHostDetectionOptions = {}): DockerAut
     };
   }
 
+  const resolveContextHost =
+    opts.resolveDockerContextHost ?? ((name?: string) => resolveDockerContextHost(name, env));
+  // Only a supported local socket is recorded as the endpoint. Any other
+  // endpoint, and a context that does not resolve, keeps the host default so
+  // this selection never widens what a later consumer is allowed to contact.
+  const selectContext = (name?: string): DockerHostDetection | null => {
+    const contextHost = resolveContextHost(name);
+    return contextHost && isSupportedGatewayDockerHost(contextHost)
+      ? { dockerHost: contextHost, source: "context", socketPath: null }
+      : null;
+  };
+
   const context = String(env.DOCKER_CONTEXT ?? "").trim();
-  if (context) {
-    const resolveContextHost =
-      opts.resolveDockerContextHost ?? ((name: string) => resolveDockerContextHost(name, env));
-    const contextHost = resolveContextHost(context);
-    // Only a supported local socket is recorded as the endpoint. Any other
-    // endpoint, and a context that does not resolve, keeps the host default so
-    // this selection never widens what a later consumer is allowed to contact.
+  if (context) return { selection: selectContext(context), conflict: null };
+
+  const fileExists = opts.existsSync ?? defaultExistsSync;
+  const probe = opts.probeDockerHost ?? ((dockerHost) => probeDockerHost(dockerHost, env));
+  const ambient = probe(undefined);
+  if (ambient.reachable) {
+    // The CLI also follows its persisted current context, but the gateway reads
+    // only DOCKER_HOST and then the default socket. Without that socket, as with
+    // Colima, the gateway would fail to find the daemon the CLI just reached
+    // (#12367). With it, the default is left alone and nothing is spawned.
+    const current = fileExists(DEFAULT_DOCKER_SOCKET) ? null : selectContext();
     return {
-      selection:
-        contextHost && isSupportedGatewayDockerHost(contextHost)
-          ? { dockerHost: contextHost, source: "context", socketPath: null }
-          : null,
+      selection: current?.dockerHost === `unix://${DEFAULT_DOCKER_SOCKET}` ? null : current,
       conflict: null,
     };
   }
-
-  const probe = opts.probeDockerHost ?? ((dockerHost) => probeDockerHost(dockerHost, env));
-  const ambient = probe(undefined);
   // Redirect the CLI away from the host's own default authority only after
   // observing that the default refuses to answer. A probe that timed out or
   // never ran is no evidence at all (#10367).
-  if (ambient.reachable || ambient.inconclusive) return { selection: null, conflict: null };
+  if (ambient.inconclusive) return { selection: null, conflict: null };
 
-  const fileExists = opts.existsSync ?? defaultExistsSync;
   let selection: DockerHostDetection | null = null;
   let selected: DockerAuthorityCandidate | null = null;
   for (const socketPath of getDockerSocketCandidates({ ...opts, env })) {

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type ConnectHarness,
@@ -195,7 +195,16 @@ describe("sandbox start readiness", () => {
   );
 });
 
+/** The first clock read starts the wait; every later read is past the 120s budget. */
+function expireReadinessBudget(): void {
+  vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(120_001);
+}
+
 describe("sandbox readiness container identity boundary", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("names the foreign workspace when the terminal Error phase follows an unmatched container (#10869)", async () => {
     const harness = unmatchedIdentityHarness({
       listOutputs: ["alpha Provisioning", "alpha Error"],
@@ -237,6 +246,54 @@ describe("sandbox readiness container identity boundary", () => {
     expect(output).toContain("Then rerun 'nemoclaw alpha start'.");
     expect(harness.captureOpenshellSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("names the foreign workspace when readiness times out on an unmatched container (#12799)", async () => {
+    expireReadinessBudget();
+    const harness = unmatchedIdentityHarness({
+      listOutputs: ["alpha Starting"],
+      sandboxNameLabeledContainers: observed([FOREIGN_WORKSPACE]),
+    });
+
+    await expect(
+      harness.waitForSandboxReadyOrExit("alpha", { retryCommand: "start" }),
+    ).rejects.toThrow(EXIT_ONE);
+
+    const output = harness.errorSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("Timed out after 120s waiting for sandbox 'alpha'.");
+    expect(output).toContain(
+      "No Docker container matches sandbox 'alpha' in the default OpenShell workspace.",
+    );
+    expect(output).toContain("1 container(s) carry the 'openshell.ai/sandbox-name=alpha' label:");
+    expect(output).toContain("Then rerun 'nemoclaw alpha start'.");
+    expect(output).not.toContain("NEMOCLAW_CONNECT_TIMEOUT");
+    expect(output).not.toContain("openshell sandbox list");
+  });
+
+  it.each([
+    ["no container carries the sandbox-name label", {}, observed([])],
+    [
+      "the sandbox's container matched",
+      { dockerRuntime: { containerName: "openshell-alpha" } },
+      observed([FOREIGN_WORKSPACE]),
+    ],
+  ] as const)(
+    "keeps the timeout guidance when %s (#12799)",
+    async (_condition, overrides, observation) => {
+      expireReadinessBudget();
+      const harness = unmatchedIdentityHarness({
+        listOutputs: ["alpha Starting"],
+        sandboxNameLabeledContainers: observation,
+        ...overrides,
+      });
+
+      await expect(harness.waitForSandboxReadyOrExit("alpha")).rejects.toThrow(EXIT_ONE);
+
+      const output = harness.errorSpy.mock.calls.flat().join("\n");
+      expect(output).toContain("Check: openshell sandbox list");
+      expect(output).toContain("NEMOCLAW_CONNECT_TIMEOUT=300 nemoclaw alpha connect");
+      expect(output).not.toContain("No Docker container matches");
+    },
+  );
 
   it("keeps the runtime-fault guidance when the terminal phase belongs to a matched container (#10869)", async () => {
     const harness = unmatchedIdentityHarness({

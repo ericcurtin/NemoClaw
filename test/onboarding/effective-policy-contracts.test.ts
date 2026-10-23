@@ -8,6 +8,7 @@ import { loadManagedToolGatewayMatrix } from "../../agents/hermes/config/managed
 import { loadAgent } from "../../src/lib/agent/defs.ts";
 import { requiredMessagingChannelPolicyPresets } from "../../src/lib/onboard/messaging-policy-presets.ts";
 import * as policies from "../../src/lib/policy";
+import { allowedAddressMatcher } from "../helpers/allowed-address-matcher";
 
 type AllowRule = {
   allow?: {
@@ -41,6 +42,9 @@ type PolicyDocument = {
   filesystem_policy?: { read_write?: string[] };
   network_policies?: Record<string, NetworkPolicy>;
 };
+
+// Private IPv4 ranges and IPv6 unique-local addresses that `host.openshell.internal` can resolve to.
+const BRIDGE_ALLOWED_IPS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"];
 
 const EXISTING_POLICY = YAML.stringify({
   version: 1,
@@ -343,6 +347,37 @@ describe("effective built-in policy contracts", () => {
     expect(binaries(pricing)).toEqual(["/usr/bin/node", "/usr/local/bin/node"]);
   });
 
+  it.each(["openclaw", "hermes"] as const)(
+    "admits Docker host bridge IPv4 and IPv6 addresses on every %s preset endpoint that pins them",
+    (agent) => {
+      const presetNames = policies.listPresets({ agent }).map((preset) => preset.name);
+      const bridgeEndpoints = Object.values(
+        composePresets(presetNames, agent).network_policies ?? {},
+      )
+        .flatMap((policy) => policy.endpoints ?? [])
+        .filter((endpoint) => endpoint.host === "host.openshell.internal" && endpoint.allowed_ips);
+
+      expect(bridgeEndpoints.length).toBeGreaterThan(0);
+      bridgeEndpoints.forEach((endpoint) => {
+        const label = `host.openshell.internal:${endpoint.port}`;
+        const isAllowed = allowedAddressMatcher(endpoint.allowed_ips ?? []);
+        expect(endpoint.allowed_ips, label).toEqual(BRIDGE_ALLOWED_IPS);
+        expect(
+          ["192.168.65.254", "172.17.0.1", "fdc4:f303:9324::254"].map((address) =>
+            isAllowed(address),
+          ),
+          label,
+        ).toEqual([true, true, true]);
+        expect(
+          ["8.8.8.8", "127.0.0.1", "169.254.169.254", "2001:4860:4860::8888", "::1", "fe80::1"].map(
+            (address) => isAllowed(address),
+          ),
+          label,
+        ).toEqual([false, false, false, false, false, false]);
+      });
+    },
+  );
+
   it("limits local OTLP egress to reviewed trace submissions without embedded credentials", () => {
     const effective = composePresets([
       "observability-otlp-local",
@@ -350,14 +385,13 @@ describe("effective built-in policy contracts", () => {
     ]);
     const observability = requireNetworkPolicy(effective, "observability-otlp-local");
     const diagnostics = requireNetworkPolicy(effective, "openclaw-diagnostics-otel-local");
-    const privateRanges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
 
     const observabilityEndpoint = requireEndpoint(observability, "host.openshell.internal");
     expect(observabilityEndpoint).toMatchObject({
       port: 4318,
       protocol: "rest",
       enforcement: "enforce",
-      allowed_ips: privateRanges,
+      allowed_ips: BRIDGE_ALLOWED_IPS,
     });
     expect(rules(observabilityEndpoint)).toEqual([{ method: "POST", path: "/v1/traces" }]);
     expect(binaries(observability)).toEqual(["/opt/venv/bin/python3*"]);
@@ -367,7 +401,7 @@ describe("effective built-in policy contracts", () => {
       port: 4318,
       protocol: "rest",
       enforcement: "enforce",
-      allowed_ips: privateRanges,
+      allowed_ips: BRIDGE_ALLOWED_IPS,
     });
     expect(rules(diagnosticsEndpoint)).toEqual([
       { method: "POST", path: "/v1/traces" },
@@ -388,13 +422,12 @@ describe("effective built-in policy contracts", () => {
     const effective = composePresets(["local-memory"], "hermes");
     const localMemory = requireNetworkPolicy(effective, "local_memory");
     const endpoint = requireEndpoint(localMemory, "host.openshell.internal");
-    const privateRanges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
 
     expect(endpoint).toMatchObject({
       port: 8888,
       protocol: "rest",
       enforcement: "enforce",
-      allowed_ips: privateRanges,
+      allowed_ips: BRIDGE_ALLOWED_IPS,
     });
     expect(rules(endpoint)).toEqual([
       { method: "GET", path: "/**" },
@@ -409,7 +442,6 @@ describe("effective built-in policy contracts", () => {
     const managedPresetNames = Object.keys(matrix);
     const effective = composePresets(["local-inference", ...managedPresetNames]);
     const localInference = requireNetworkPolicy(effective, "local_inference");
-    const privateRanges = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"];
 
     [8000, 11434, 11435].forEach((port) => {
       const endpoint = (localInference.endpoints ?? []).find(
@@ -418,7 +450,7 @@ describe("effective built-in policy contracts", () => {
       expect(endpoint, `expected local inference port ${port}`).toMatchObject({
         protocol: "rest",
         enforcement: "enforce",
-        allowed_ips: privateRanges,
+        allowed_ips: BRIDGE_ALLOWED_IPS,
       });
       expect(methods(endpoint ?? {})).toEqual(["GET", "POST"]);
     });

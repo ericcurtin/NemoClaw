@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import fs from "node:fs";
-import { BlockList, isIP } from "node:net";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +10,7 @@ import YAML from "yaml";
 import * as policies from "../../../src/lib/policy";
 import { ROOT } from "../../../src/lib/runner";
 import * as registry from "../../../src/lib/state/registry";
+import { allowedAddressMatcher } from "../../helpers/allowed-address-matcher";
 
 type Endpoint = {
   allowed_ips?: string[];
@@ -75,22 +75,6 @@ function loadPersonalInternetPolicy(): NetworkPolicy {
   const content = policies.loadPreset("personal-open-internet");
   expect(content).not.toBeNull();
   return parsePolicy(content ?? "").network_policies?.personal_open_internet ?? {};
-}
-
-function allowedAddressMatcher(cidrs: readonly string[]): (address: string) => boolean {
-  const allowed = new BlockList();
-  for (const cidr of cidrs) {
-    const [address, prefixText] = cidr.split("/");
-    const family = isIP(address ?? "");
-    const prefix = Number(prefixText);
-    expect(family, cidr).not.toBe(0);
-    expect(Number.isInteger(prefix), cidr).toBe(true);
-    allowed.addSubnet(address!, prefix, family === 4 ? "ipv4" : "ipv6");
-  }
-  return (address: string): boolean => {
-    const family = isIP(address);
-    return family !== 0 && allowed.check(address, family === 4 ? "ipv4" : "ipv6");
-  };
 }
 
 function expectNoWebEndpoints(policies: Record<string, NetworkPolicy>): void {

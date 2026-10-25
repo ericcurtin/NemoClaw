@@ -113,6 +113,37 @@ describe("provider-owned managed startup root application", () => {
     expect(sleep.mock.calls).toEqual([[250], [250]]);
   });
 
+  it("keeps waiting past five seconds for a late container", () => {
+    let nowMs = 10_000;
+    const absent = (): never => {
+      throw new DirectSandboxContainerNotFoundError("container absent");
+    };
+    const resolveTarget = vi.fn(() =>
+      nowMs < 18_000 ? absent() : { resourceHandle: CONTAINER_ID },
+    );
+    const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
+
+    const transaction = applyProviderManagedStartupRootRequest(
+      {
+        runtimeProvider,
+        sandboxName: SANDBOX_NAME,
+        sandboxId: SANDBOX_ID,
+        bootstrapIdentity: "c".repeat(64),
+        request,
+        environment: {},
+      },
+      {
+        now: () => nowMs,
+        sleep: (milliseconds) => {
+          nowMs += milliseconds;
+        },
+      },
+    );
+
+    expect(transaction?.containerId).toBe(CONTAINER_ID);
+    expect(resolveTarget).toHaveBeenCalledTimes(33);
+  });
+
   it("fails with bounded evidence when the exact OpenShell container stays absent", () => {
     const resolveTarget = vi.fn(() => {
       throw new DirectSandboxContainerNotFoundError("container absent");
@@ -132,15 +163,15 @@ describe("provider-owned managed startup root application", () => {
         },
         { sleep },
       ),
-    ).toThrow(/remained absent after 21 observations over \d+ms \(budget 5000ms\)/u);
-    expect(resolveTarget).toHaveBeenCalledTimes(21);
-    expect(sleep).toHaveBeenCalledTimes(20);
+    ).toThrow(/remained absent after 121 observations over \d+ms \(budget 30000ms\)/u);
+    expect(resolveTarget).toHaveBeenCalledTimes(121);
+    expect(sleep).toHaveBeenCalledTimes(120);
   });
 
   it("bounds slow container discovery by the remaining handoff deadline", () => {
     let nowMs = 10_000;
     const resolveTarget = vi.fn((input: { readonly timeoutMs?: number }) => {
-      nowMs += input.timeoutMs === 5_000 ? 3_000 : 2_000;
+      nowMs += input.timeoutMs === 30_000 ? 20_000 : 10_000;
       throw new DirectSandboxContainerNotFoundError("container absent");
     });
     const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
@@ -158,9 +189,9 @@ describe("provider-owned managed startup root application", () => {
         },
         { now: () => nowMs, sleep },
       ),
-    ).toThrow(/remained absent after 2 observations over 5000ms \(budget 5000ms\)/u);
+    ).toThrow(/remained absent after 2 observations over 30000ms \(budget 30000ms\)/u);
     expect(resolveTarget).toHaveBeenCalledTimes(2);
-    expect(resolveTarget.mock.calls.map(([input]) => input.timeoutMs)).toEqual([5_000, 2_000]);
+    expect(resolveTarget.mock.calls.map(([input]) => input.timeoutMs)).toEqual([30_000, 10_000]);
     expect(sleep.mock.calls).toEqual([[250]]);
   });
 

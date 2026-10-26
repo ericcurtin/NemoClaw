@@ -30,9 +30,10 @@ const ROOT_APPLY_TIMEOUT_MS = 300_000;
 // matching container row. Retry only the exact missing-container signal. An
 // ambiguous, stopped, or changed identity still fails immediately, and the
 // terminal error records the actual observation count and elapsed time.
-const CREATED_CONTAINER_DISCOVERY_ATTEMPTS = 21;
-const CREATED_CONTAINER_DISCOVERY_BUDGET_MS = 5_000;
+const CREATED_CONTAINER_DISCOVERY_BUDGET_MS = 30_000;
 const CREATED_CONTAINER_DISCOVERY_INTERVAL_MS = 250;
+const CREATED_CONTAINER_DISCOVERY_ATTEMPTS =
+  Math.floor(CREATED_CONTAINER_DISCOVERY_BUDGET_MS / CREATED_CONTAINER_DISCOVERY_INTERVAL_MS) + 1;
 const MANAGED_STARTUP_HOLD_RELEASE_ATTEMPTS = 3;
 const FIXED_ROOT_ENV = [
   "HOME=/root",

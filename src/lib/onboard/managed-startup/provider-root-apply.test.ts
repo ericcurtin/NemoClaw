@@ -82,85 +82,88 @@ function createDockerRootApplyFixture(
   return { request, runtimeProvider };
 }
 
+function containerAbsentFor(observations: number) {
+  const resolveTarget = vi.fn<() => { resourceHandle: string }>(() => ({
+    resourceHandle: CONTAINER_ID,
+  }));
+  for (let observation = 0; observation < observations; observation += 1) {
+    resolveTarget.mockImplementationOnce(() => {
+      throw new DirectSandboxContainerNotFoundError("container absent");
+    });
+  }
+  return resolveTarget;
+}
+
+function applyWithContainerDiscovery(
+  resolveTarget: Parameters<typeof createDockerRootApplyFixture>[0],
+  timing: Parameters<typeof applyProviderManagedStartupRootRequest>[1],
+) {
+  const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
+  return applyProviderManagedStartupRootRequest(
+    {
+      runtimeProvider,
+      sandboxName: SANDBOX_NAME,
+      sandboxId: SANDBOX_ID,
+      bootstrapIdentity: "c".repeat(64),
+      request,
+      environment: {},
+    },
+    timing,
+  );
+}
+
 describe("provider-owned managed startup root application", () => {
   it("waits for the exact OpenShell container to appear after create returns", () => {
-    const resolveTarget = vi
-      .fn<() => { resourceHandle: string }>()
-      .mockImplementationOnce(() => {
-        throw new DirectSandboxContainerNotFoundError("container absent");
-      })
-      .mockImplementationOnce(() => {
-        throw new DirectSandboxContainerNotFoundError("container absent");
-      })
-      .mockReturnValue({ resourceHandle: CONTAINER_ID });
-    const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
+    const resolveTarget = containerAbsentFor(2);
     const sleep = vi.fn();
 
-    const transaction = applyProviderManagedStartupRootRequest(
-      {
-        runtimeProvider,
-        sandboxName: SANDBOX_NAME,
-        sandboxId: SANDBOX_ID,
-        bootstrapIdentity: "c".repeat(64),
-        request,
-        environment: {},
-      },
-      { sleep },
-    );
+    const transaction = applyWithContainerDiscovery(resolveTarget, { sleep });
 
     expect(transaction?.containerId).toBe(CONTAINER_ID);
     expect(resolveTarget).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[250], [250]]);
   });
 
+  it("accepts a container that appears after the former five-second window", () => {
+    let nowMs = 0;
+    const resolveTarget = containerAbsentFor(28);
+    const sleep = vi.fn((milliseconds: number) => {
+      nowMs += milliseconds;
+    });
+
+    const transaction = applyWithContainerDiscovery(resolveTarget, { now: () => nowMs, sleep });
+
+    expect(transaction?.containerId).toBe(CONTAINER_ID);
+    expect(resolveTarget).toHaveBeenCalledTimes(29);
+    expect(nowMs).toBe(7_000);
+  });
+
   it("fails with bounded evidence when the exact OpenShell container stays absent", () => {
     const resolveTarget = vi.fn(() => {
       throw new DirectSandboxContainerNotFoundError("container absent");
     });
-    const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
     const sleep = vi.fn();
 
-    expect(() =>
-      applyProviderManagedStartupRootRequest(
-        {
-          runtimeProvider,
-          sandboxName: SANDBOX_NAME,
-          sandboxId: SANDBOX_ID,
-          bootstrapIdentity: "c".repeat(64),
-          request,
-          environment: {},
-        },
-        { sleep },
-      ),
-    ).toThrow(/remained absent after 21 observations over \d+ms \(budget 5000ms\)/u);
-    expect(resolveTarget).toHaveBeenCalledTimes(21);
-    expect(sleep).toHaveBeenCalledTimes(20);
+    expect(() => applyWithContainerDiscovery(resolveTarget, { sleep })).toThrow(
+      /remained absent after 121 observations over \d+ms \(budget 30000ms\)/u,
+    );
+    expect(resolveTarget).toHaveBeenCalledTimes(121);
+    expect(sleep).toHaveBeenCalledTimes(120);
   });
 
   it("bounds slow container discovery by the remaining handoff deadline", () => {
     let nowMs = 10_000;
     const resolveTarget = vi.fn((input: { readonly timeoutMs?: number }) => {
-      nowMs += input.timeoutMs === 5_000 ? 3_000 : 2_000;
+      nowMs += input.timeoutMs === 30_000 ? 18_000 : 12_000;
       throw new DirectSandboxContainerNotFoundError("container absent");
     });
-    const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
     const sleep = vi.fn();
 
-    expect(() =>
-      applyProviderManagedStartupRootRequest(
-        {
-          runtimeProvider,
-          sandboxName: SANDBOX_NAME,
-          sandboxId: SANDBOX_ID,
-          bootstrapIdentity: "c".repeat(64),
-          request,
-          environment: {},
-        },
-        { now: () => nowMs, sleep },
-      ),
-    ).toThrow(/remained absent after 2 observations over 5000ms \(budget 5000ms\)/u);
+    expect(() => applyWithContainerDiscovery(resolveTarget, { now: () => nowMs, sleep })).toThrow(
+      /remained absent after 2 observations over 30000ms \(budget 30000ms\)/u,
+    );
     expect(resolveTarget).toHaveBeenCalledTimes(2);
-    expect(resolveTarget.mock.calls.map(([input]) => input.timeoutMs)).toEqual([5_000, 2_000]);
+    expect(resolveTarget.mock.calls.map(([input]) => input.timeoutMs)).toEqual([30_000, 12_000]);
     expect(sleep.mock.calls).toEqual([[250]]);
   });
 
@@ -168,22 +171,11 @@ describe("provider-owned managed startup root application", () => {
     const resolveTarget = vi.fn(() => {
       throw new DirectSandboxFallbackUnavailableError("ambiguous container ownership");
     });
-    const { request, runtimeProvider } = createDockerRootApplyFixture(resolveTarget);
     const sleep = vi.fn();
 
-    expect(() =>
-      applyProviderManagedStartupRootRequest(
-        {
-          runtimeProvider,
-          sandboxName: SANDBOX_NAME,
-          sandboxId: SANDBOX_ID,
-          bootstrapIdentity: "c".repeat(64),
-          request,
-          environment: {},
-        },
-        { sleep },
-      ),
-    ).toThrow(/ambiguous container ownership/u);
+    expect(() => applyWithContainerDiscovery(resolveTarget, { sleep })).toThrow(
+      /ambiguous container ownership/u,
+    );
     expect(resolveTarget).toHaveBeenCalledOnce();
     expect(sleep).not.toHaveBeenCalled();
   });

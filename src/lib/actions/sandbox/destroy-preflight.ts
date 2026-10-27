@@ -43,6 +43,7 @@ import {
   getSandboxAcrossGatewayRoots,
   listInferenceRouteOwnersAcrossGatewayRoots,
   listPublishedSandboxesAcrossGatewayRoots,
+  listPublishedSandboxesInGatewayRoot,
   removeSandboxFromOwningGatewayRegistry,
 } from "../../state/registry/cross-port";
 
@@ -150,6 +151,8 @@ export type SandboxDestroyRegistryAuthority = {
   gatewayPort: number;
   getSandbox: typeof registry.getSandbox;
   listSandboxes: typeof registry.listSandboxes;
+  /** Sandboxes on the destroyed sandbox's own gateway; other gateways do not keep it in use. */
+  listGatewaySandboxes: typeof registry.listSandboxes;
   removeSandbox: typeof registry.removeSandbox;
 };
 
@@ -164,15 +167,21 @@ export function resolveSandboxDestroyRegistryAuthority(
       gatewayPort: resolveNemoclawStateGatewayPort(),
       getSandbox: registry.getSandbox,
       listSandboxes: registry.listSandboxes,
+      listGatewaySandboxes: registry.listSandboxes,
       removeSandbox: registry.removeSandbox,
     };
   }
+  const gatewayPort = hit.registryGatewayPort ?? sandboxGatewayPort(hit.entry);
   return {
     entry: hit.entry,
-    gatewayPort: hit.registryGatewayPort ?? sandboxGatewayPort(hit.entry),
+    gatewayPort,
     getSandbox: getSandboxAcrossGatewayRoots,
     listSandboxes: () => ({
       sandboxes: listPublishedSandboxesAcrossGatewayRoots(),
+      defaultSandbox: null,
+    }),
+    listGatewaySandboxes: () => ({
+      sandboxes: listPublishedSandboxesInGatewayRoot(gatewayPort),
       defaultSandbox: null,
     }),
     removeSandbox: (name) =>

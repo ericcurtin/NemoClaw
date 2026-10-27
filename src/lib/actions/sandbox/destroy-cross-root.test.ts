@@ -30,27 +30,35 @@ describe("destroySandbox cross-root registry authority", () => {
     fs.rmSync(home, { force: true, recursive: true });
   });
 
-  it("removes the sandbox from its sibling gateway registry", async () => {
-    const registryDir = path.join(home, ".nemoclaw", "gateways", "8245");
+  function writeGatewayRegistry(port: number, names: string[]): string {
+    const registryDir = path.join(home, ".nemoclaw", "gateways", String(port));
     const registryFile = path.join(registryDir, "sandboxes.json");
     fs.mkdirSync(registryDir, { recursive: true });
     fs.writeFileSync(
       registryFile,
       JSON.stringify({
-        defaultSandbox: "alpha",
+        defaultSandbox: names[0],
         defaultSelectionRevision: 1,
-        sandboxes: {
-          alpha: {
-            name: "alpha",
-            agent: "openclaw",
-            provider: "ollama-local",
-            model: "nvidia/nemotron",
-            gatewayName: "nemoclaw-8245",
-            gatewayPort: 8245,
-          },
-        },
+        sandboxes: Object.fromEntries(
+          names.map((name) => [
+            name,
+            {
+              name,
+              agent: "openclaw",
+              provider: "ollama-local",
+              model: "nvidia/nemotron",
+              gatewayName: `nemoclaw-${port}`,
+              gatewayPort: port,
+            },
+          ]),
+        ),
       }),
     );
+    return registryFile;
+  }
+
+  it("removes the sandbox from its sibling gateway registry", async () => {
+    const registryFile = writeGatewayRegistry(8245, ["alpha"]);
     const harness = createDestroyHarness();
 
     await expect(
@@ -72,34 +80,7 @@ describe("destroySandbox cross-root registry authority", () => {
   });
 
   it("preserves the gateway when another sibling-root sandbox remains", async () => {
-    const registryDir = path.join(home, ".nemoclaw", "gateways", "8245");
-    const registryFile = path.join(registryDir, "sandboxes.json");
-    fs.mkdirSync(registryDir, { recursive: true });
-    fs.writeFileSync(
-      registryFile,
-      JSON.stringify({
-        defaultSandbox: "alpha",
-        defaultSelectionRevision: 1,
-        sandboxes: {
-          alpha: {
-            name: "alpha",
-            agent: "openclaw",
-            provider: "ollama-local",
-            model: "nvidia/nemotron",
-            gatewayName: "nemoclaw-8245",
-            gatewayPort: 8245,
-          },
-          beta: {
-            name: "beta",
-            agent: "openclaw",
-            provider: "ollama-local",
-            model: "nvidia/nemotron",
-            gatewayName: "nemoclaw-8245",
-            gatewayPort: 8245,
-          },
-        },
-      }),
-    );
+    const registryFile = writeGatewayRegistry(8245, ["alpha", "beta"]);
     const harness = createDestroyHarness();
 
     await expect(
@@ -111,6 +92,19 @@ describe("destroySandbox cross-root registry authority", () => {
       sandboxes: { beta: { name: "beta" } },
     });
     expect(harness.cleanupGatewaySpy).not.toHaveBeenCalled();
+    expect(harness.removeSandboxSpy).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the gateway when only another gateway still has a sandbox", async () => {
+    writeGatewayRegistry(8245, ["alpha"]);
+    writeGatewayRegistry(8246, ["beta"]);
+    const harness = createDestroyHarness();
+
+    await expect(
+      harness.destroySandbox("alpha", { yes: true, cleanupGateway: true }),
+    ).resolves.toBeUndefined();
+
+    expect(harness.cleanupGatewaySpy).toHaveBeenCalledWith("nemoclaw-8245", expect.anything());
     expect(harness.removeSandboxSpy).not.toHaveBeenCalled();
   });
 });

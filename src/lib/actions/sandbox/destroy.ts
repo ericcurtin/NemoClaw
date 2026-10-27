@@ -734,6 +734,7 @@ async function destroySandboxUnlocked(
   const registryAuthority = resolveSandboxDestroyRegistryAuthority(sandboxName);
   const getRegisteredSandbox = registryAuthority.getSandbox;
   const listRegisteredSandboxes = registryAuthority.listSandboxes;
+  const listGatewaySandboxes = registryAuthority.listGatewaySandboxes;
   const registeredSandbox = registryAuthority.entry;
   if (registeredSandbox) {
     try {
@@ -1441,7 +1442,7 @@ async function destroySandboxUnlocked(
   const cleanupDecision =
     deleteSucceededOrAlreadyGone &&
     registryEntryAbsent &&
-    listRegisteredSandboxes().sandboxes.length === 0
+    listGatewaySandboxes().sandboxes.length === 0
       ? resolveDestroyGatewayCleanupDecision(normalized, {
           nonInteractive: isDestroyNonInteractiveEnv(),
           platform: process.platform,
@@ -1460,7 +1461,7 @@ async function destroySandboxUnlocked(
         },
         {
           ...deps.finalGatewayCleanup,
-          listSandboxes: listRegisteredSandboxes,
+          listSandboxes: listGatewaySandboxes,
           ...(cleanupCaptureOpenshell ? { captureOpenshell: cleanupCaptureOpenshell } : {}),
         },
       );

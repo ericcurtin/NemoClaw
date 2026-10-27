@@ -185,8 +185,13 @@ export function removeSandboxAcrossGatewayRoots(
   return hit ? removeSandboxFromOwningGatewayRegistry(hit, home) : false;
 }
 
-function listEntriesAcrossGatewayRoots(published: boolean, home: string): SandboxEntry[] {
+function listEntriesAcrossGatewayRoots(
+  published: boolean,
+  home: string,
+  gatewayPort?: number,
+): SandboxEntry[] {
   return listSandboxHitsAcrossGatewayRoots(home)
+    .filter((hit) => gatewayPort === undefined || hit.registryGatewayPort === gatewayPort)
     .map(({ entry }) => entry)
     .filter((entry) => (entry.pendingRouteReservation === true) === !published);
 }
@@ -217,6 +222,14 @@ export function listPublishedSandboxesAcrossGatewayRoots(
   home: string = resolveHome(),
 ): SandboxEntry[] {
   return listEntriesAcrossGatewayRoots(true, home);
+}
+
+/** Published sandbox entries from one gateway-port state root. */
+export function listPublishedSandboxesInGatewayRoot(
+  gatewayPort: number,
+  home: string = resolveHome(),
+): SandboxEntry[] {
+  return listEntriesAcrossGatewayRoots(true, home, gatewayPort);
 }
 
 /** All route owners across registry roots, including unpublished reservations. */

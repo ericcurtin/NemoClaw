@@ -63,6 +63,7 @@ import {
   revalidateRebuildRouteBeforeDelete,
 } from "./rebuild-preflight-guards";
 import {
+  reportRebuildLockContention,
   runHermesCronRestoreBackupPreflight,
   runRebuildPreflightPhase,
 } from "./rebuild-preflight-phase";
@@ -121,6 +122,26 @@ export async function rebuildSandbox(
   options: string[] | RebuildSandboxOptions = {},
   opts: RebuildSandboxExecutionOptions = {},
 ): Promise<void> {
+  const lock: { phase: RebuildLockPhase } = { phase: "delegating" };
+  try {
+    await rebuildSandboxUnderLocks(sandboxName, options, opts, (phase) => {
+      lock.phase = phase;
+    });
+  } catch (error) {
+    // Contention while acquiring the locks is a preflight stop; the sandbox is untouched.
+    if (lock.phase === "acquiring") reportRebuildLockContention(error, options, opts);
+    throw error;
+  }
+}
+
+type RebuildLockPhase = "delegating" | "acquiring" | "held";
+
+async function rebuildSandboxUnderLocks(
+  sandboxName: string,
+  options: string[] | RebuildSandboxOptions,
+  opts: RebuildSandboxExecutionOptions,
+  onLockPhase: (phase: RebuildLockPhase) => void,
+): Promise<void> {
   const homeDir = process.env.HOME || os.homedir();
   const normalizedOptions = normalizeRebuildSandboxOptions(options);
   if (
@@ -133,6 +154,7 @@ export async function rebuildSandbox(
     return;
   }
   assertSandboxRebuildCommandAvailable(sandboxName);
+  onLockPhase("acquiring");
   return withPortableOnboardRetirementBoundary(
     {
       homeDir,
@@ -142,6 +164,7 @@ export async function rebuildSandbox(
     },
     () =>
       withMcpLifecycleLock(sandboxName, async () => {
+        onLockPhase("held");
         const removedImmutabilityMigration = enforceRemovedImmutabilityMigrationBoundary(
           sandboxName,
           {

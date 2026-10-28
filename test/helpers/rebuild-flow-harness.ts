@@ -50,6 +50,7 @@ export const mcpBridge = requireDist("./mcp-bridge.js");
 export const mcpBridgeProvider = requireDist("./mcp-bridge-provider.js");
 export const mcpBridgeProviderInspection = requireDist("./mcp-bridge-provider-inspection.js");
 export const mcpBridgeSource = requireDist("./mcp-bridge-source.js");
+export const mcpLifecycleLock = requireDist("../../state/mcp-lifecycle-lock.js");
 export const messaging = requireDist("../../messaging/index.js");
 export const messagingHostForwardLifecycle = requireDist("./messaging-host-forward-lifecycle.js");
 export const mutableConfigPerms = requireDist("../../sandbox/mutable-config-perms.js");
@@ -108,6 +109,7 @@ export const rebuildPreflightPhase = requireDist(
 ) as typeof import("../../src/lib/actions/sandbox/rebuild-preflight-phase");
 export const rebuildUsageNotice = requireDist("./rebuild-usage-notice.js");
 export const registry = requireDist("../../state/registry.js");
+export const registryLock = requireDist("../../state/registry/lock.js");
 export const crossPortRegistry = requireDist("../../state/registry/cross-port.js");
 export const registryPersistence = requireDist("../../state/registry/persistence.js");
 export const resolve = requireDist("../../adapters/openshell/resolve.js");

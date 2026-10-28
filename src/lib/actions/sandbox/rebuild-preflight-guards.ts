@@ -32,7 +32,11 @@ import type { SandboxEntry, SandboxRegistry } from "../../state/registry/types";
 import type { RebuildBail } from "./rebuild-credential-preflight";
 import type { RebuildSandboxEntry } from "./rebuild-flow-helpers";
 import type { RebuildVersionCheck } from "./rebuild-preflight-confirmation";
-import { printRebuildPreflightFailure } from "./rebuild-preflight-error";
+import {
+  printRebuildPreflightFailure,
+  REBUILD_VERIFY_SANDBOX_NAME_HINT,
+  rebuildSandboxNotRegisteredSummary,
+} from "./rebuild-preflight-error";
 import { reconcileJournaledRebuildRecovery } from "./destroy-preflight";
 import { getRebuildCredentialEnvFromRegistry } from "./rebuild-resume-preflight";
 
@@ -348,8 +352,8 @@ export function getRebuildSandboxEntryOrBail(
   const sb = registry.getSandbox(sandboxName) as RebuildSandboxEntry | null;
   if (!sb) {
     printRebuildPreflightFailure(
-      `sandbox '${sandboxName}' not found in registry.`,
-      "Verify the sandbox name and rerun rebuild.",
+      rebuildSandboxNotRegisteredSummary(sandboxName),
+      REBUILD_VERIFY_SANDBOX_NAME_HINT,
       `Sandbox '${sandboxName}' not found in registry.`,
       bail,
     );

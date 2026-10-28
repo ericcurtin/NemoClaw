@@ -3,7 +3,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { printRebuildPreflightFailure } from "./rebuild-preflight-error";
+import {
+  printRebuildLockContention,
+  printRebuildPreflightFailure,
+} from "./rebuild-preflight-error";
 
 describe("printRebuildPreflightFailure (#7794)", () => {
   beforeEach(() => {
@@ -47,5 +50,22 @@ describe("printRebuildPreflightFailure (#7794)", () => {
     );
 
     expect(bail).toHaveBeenCalledWith("pending policy transition", 1);
+  });
+});
+
+describe("printRebuildLockContention (#13808)", () => {
+  it("frames lock contention as an untouched-sandbox preflight stop", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bail = vi.fn() as unknown as (message: string, code?: number) => never;
+
+    printRebuildLockContention("Recorded owner PID 4242 is still running.", bail);
+
+    const output = errors.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Rebuild preflight failed:");
+    expect(output).toContain("another onboarding or rebuild operation is in progress");
+    expect(output).toContain("PID 4242");
+    expect(output).toContain("Do not delete the lock manually.");
+    expect(output).toContain("Aborting rebuild");
+    expect(bail).toHaveBeenCalledWith("Another operation holds the rebuild lock.");
   });
 });

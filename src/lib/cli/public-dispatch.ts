@@ -38,6 +38,12 @@ import {
   suggestCommand,
 } from "./argv-normalizer";
 import { resolveBareConnectArgv } from "./bare-connect-routing";
+import {
+  printRebuildPreflightHeader,
+  REBUILD_PREFLIGHT_ABORT_LINE,
+  REBUILD_VERIFY_SANDBOX_NAME_HINT,
+  rebuildSandboxNotRegisteredSummary,
+} from "../actions/sandbox/rebuild-preflight-error";
 import { getRegisteredOclifCommandMetadata } from "./oclif-metadata";
 import {
   matchSandboxRoute,
@@ -414,7 +420,10 @@ async function recoverRequestedSandboxIfNeeded(
     }
   }
 
-  console.error(`  Sandbox '${sandboxName}' does not exist.`);
+  // Rebuild stops in its documented preflight shape, not the generic message.
+  const rebuilding = action === "rebuild";
+  if (rebuilding) printRebuildPreflightHeader(rebuildSandboxNotRegisteredSummary(sandboxName));
+  else console.error(`  Sandbox '${sandboxName}' does not exist.`);
   const allNames = registeredSandboxNames();
   if (allNames.length > 0) {
     const nameSuggestion = suggestSandboxName(sandboxName, allNames);
@@ -434,6 +443,10 @@ async function recoverRequestedSandboxIfNeeded(
     }
   } else {
     console.error(`  Run '${CLI_NAME} onboard' to create one.`);
+  }
+  if (rebuilding) {
+    console.error(`  ${REBUILD_VERIFY_SANDBOX_NAME_HINT}`);
+    console.error(REBUILD_PREFLIGHT_ABORT_LINE);
   }
   process.exit(1);
 }

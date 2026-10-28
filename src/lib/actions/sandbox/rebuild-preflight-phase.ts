@@ -16,6 +16,7 @@ import {
   type HermesCronRestorePlan,
   validateHermesCronRestoreBackup,
 } from "../../state/rebuild/hermes-cron-restore-backup";
+import { ProcessBoundLockContentionError } from "../../state/registry/lock";
 import {
   inspectNativeSandboxState,
   readRebuildMcpHandoff,
@@ -50,7 +51,10 @@ import {
   getRebuildAgentDisplayName,
   type RebuildVersionCheck,
 } from "./rebuild-preflight-confirmation";
-import { printRebuildPreflightFailure } from "./rebuild-preflight-error";
+import {
+  printRebuildLockContention,
+  printRebuildPreflightFailure,
+} from "./rebuild-preflight-error";
 import {
   acquireRebuildOnboardLock,
   assertRebuildEntryUnchanged,
@@ -154,6 +158,16 @@ export function blockRebuildOnLegacySharedLocalRoute(
     bail,
   );
   return true;
+}
+
+/** Report lock contention as a preflight stop; rebuild has changed nothing yet. */
+export function reportRebuildLockContention(
+  error: unknown,
+  options: string[] | RebuildSandboxOptions,
+  opts: RebuildSandboxExecutionOptions,
+): void {
+  if (!(error instanceof ProcessBoundLockContentionError)) return;
+  printRebuildLockContention(error.message, createRebuildCommandContext(options, opts).bail);
 }
 
 /**

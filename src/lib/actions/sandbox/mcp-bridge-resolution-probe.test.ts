@@ -271,6 +271,28 @@ describe("MCP credential-resolution probe classification", () => {
     },
   );
 
+  it.each([
+    "TypeError: fetch failed\nfetch failed\nSocketError: other side closed\nother side closed",
+    "Remote end closed connection without response Remote end closed connection without response",
+  ])("points a closed probe connection at the private CA setting [%#] (#13905)", (stderr) => {
+    const probe = classifyCredentialResolutionProbe(
+      { status: 0, stdout: probeStdout({ curlExit: 56 }), stderr },
+      baseEntry,
+    );
+    expect(probe.ok).toBeNull();
+    expect(probe.detail).toContain("connection was closed");
+    expect(probe.detail).toContain("NEMOCLAW_CORPORATE_CA_BUNDLE");
+  });
+
+  it("keeps the generic detail for other probe failures (#13905)", () => {
+    const probe = classifyCredentialResolutionProbe(
+      { status: 0, stdout: probeStdout({ curlExit: 56 }), stderr: "getaddrinfo ENOTFOUND" },
+      baseEntry,
+    );
+    expect(probe.ok).toBeNull();
+    expect(probe.detail).toBe("probe exited 56");
+  });
+
   it("classifies curl exit 28 as an indeterminate probe timeout (#6379)", () => {
     const probe = classifyCredentialResolutionProbe(
       { status: 0, stdout: probeStdout({ curlExit: 28 }), stderr: "" },

@@ -260,25 +260,34 @@ function markerValue(stdout: string, marker: string): ProbeMarkerValue | undefin
 export const MCP_CONNECT_403_POLICY_DETAIL =
   "OpenShell denied the probe connection (CONNECT 403); check the generated MCP policy";
 
+const connectRefusal = (status: number): RegExp =>
+  new RegExp(
+    `CONNECT tunnel failed,\\s*response ${status}|tunneling socket could not be established,\\s*statusCode=${status}|Tunnel connection failed:\\s*${status}`,
+    "i",
+  );
+
+// The proxy closes the socket when it cannot validate the upstream certificate,
+// so the probe sees only a closed connection (Node and Python wording).
+const CLOSED_CONNECTION_PATTERN = /other side closed|Remote end closed connection/i;
+
+const TRANSPORT_FAILURES: readonly { pattern: RegExp; detail: string }[] = [
+  { pattern: connectRefusal(403), detail: MCP_CONNECT_403_POLICY_DETAIL },
+  {
+    pattern: connectRefusal(503),
+    detail:
+      "OpenShell denied the probe before TLS setup (CONNECT 503); check gateway ephemeral CA initialization and TLS termination readiness",
+  },
+  {
+    pattern: CLOSED_CONNECTION_PATTERN,
+    detail:
+      "the connection was closed before a response; if the MCP host uses a private CA, set NEMOCLAW_CORPORATE_CA_BUNDLE before onboarding",
+  },
+];
+
 function transportDetail(probeExit: number, stderr: string): string | undefined {
-  if (
-    probeExit === 56 &&
-    /(?:CONNECT tunnel failed,\s*response 403|tunneling socket could not be established,\s*statusCode=403|Tunnel connection failed:\s*403)/i.test(
-      stderr,
-    )
-  ) {
-    return MCP_CONNECT_403_POLICY_DETAIL;
-  }
-  if (
-    probeExit === 56 &&
-    /(?:CONNECT tunnel failed,\s*response 503|tunneling socket could not be established,\s*statusCode=503|Tunnel connection failed:\s*503)/i.test(
-      stderr,
-    )
-  ) {
-    return "OpenShell denied the probe before TLS setup (CONNECT 503); check gateway ephemeral CA initialization and TLS termination readiness";
-  }
   if (probeExit === 28) return `probe timed out after ${PROBE_HTTP_MAX_TIME_SECONDS}s`;
-  return undefined;
+  if (probeExit !== 56) return undefined;
+  return TRANSPORT_FAILURES.find(({ pattern }) => pattern.test(stderr))?.detail;
 }
 
 export function classifyCredentialResolutionProbe(

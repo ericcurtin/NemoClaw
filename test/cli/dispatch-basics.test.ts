@@ -479,10 +479,22 @@ describe("CLI dispatch", () => {
 
         expect(recoverRegistryEntries).toHaveBeenCalledWith({ requestedSandboxName: "gw1-sb" });
         expect(stderr.join("\n")).toContain("Sandbox 'gw1-sb' does not exist");
+        expect(stderr.join("\n")).toContain("Rebuild preflight failed: sandbox 'gw1-sb' not found");
+        expect(stderr.at(-1)).toContain("Aborting rebuild");
         expect(runOclifCommandById).not.toHaveBeenCalled();
         expect(exitSpy).toHaveBeenCalledWith(1);
       },
     );
+  });
+
+  it("omits the rebuild preflight stop for another action on an unregistered sandbox (#13808)", async () => {
+    await withDirectPublicDispatch(async ({ dispatchCli, stderr }) => {
+      await expect(dispatchCli(["gw1-sb", "status"])).rejects.toThrow("process.exit:1");
+
+      const output = stderr.join("\n");
+      expect(output).toContain("Sandbox 'gw1-sb' does not exist");
+      expect(output).not.toContain("Rebuild preflight failed");
+    });
   });
 
   it(

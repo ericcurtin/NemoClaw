@@ -21,3 +21,12 @@ export function printRebuildPreflightFailure(
     bail(bailMessage, bailCode);
   }
 }
+
+export function printRebuildSandboxNotRegistered(sandboxName: string, bail: RebuildBail): void {
+  printRebuildPreflightFailure(
+    `sandbox '${sandboxName}' not found in registry.`,
+    "Verify the sandbox name and rerun rebuild.",
+    `Sandbox '${sandboxName}' not found in registry.`,
+    bail,
+  );
+}

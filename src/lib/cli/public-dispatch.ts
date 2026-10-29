@@ -37,6 +37,7 @@ import {
   normalizeArgv,
   suggestCommand,
 } from "./argv-normalizer";
+import { printRebuildSandboxNotRegistered } from "../actions/sandbox/rebuild-preflight-error";
 import { resolveBareConnectArgv } from "./bare-connect-routing";
 import { getRegisteredOclifCommandMetadata } from "./oclif-metadata";
 import {
@@ -434,6 +435,9 @@ async function recoverRequestedSandboxIfNeeded(
     }
   } else {
     console.error(`  Run '${CLI_NAME} onboard' to create one.`);
+  }
+  if (action === "rebuild") {
+    printRebuildSandboxNotRegistered(sandboxName, (_message, code = 1) => process.exit(code));
   }
   process.exit(1);
 }

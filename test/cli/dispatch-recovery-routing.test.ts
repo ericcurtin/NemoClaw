@@ -44,6 +44,35 @@ describe("CLI recovery routing", () => {
     );
   });
 
+  it("frames the stop as a rebuild preflight failure when rebuild names an unregistered sandbox (#13808)", async () => {
+    await withDirectPublicDispatch(
+      async ({ dispatchCli, exitSpy, stderr }) => {
+        await expect(dispatchCli(["alpha", "rebuild", "--yes"])).rejects.toThrow("process.exit:1");
+
+        const output = stderr.join("\n");
+        expect(output).toContain("Registered sandboxes: beta");
+        expect(output).toContain(
+          "Rebuild preflight failed: sandbox 'alpha' not found in registry.",
+        );
+        expect(output).toContain("Verify the sandbox name and rerun rebuild.");
+        expect(output).toContain("Aborting rebuild");
+        expect(exitSpy).toHaveBeenCalledWith(1);
+      },
+      { sandboxNames: ["beta"] },
+    );
+  });
+
+  it("omits the rebuild framing when another action names an unregistered sandbox (#13808)", async () => {
+    await withDirectPublicDispatch(async ({ dispatchCli, stderr }) => {
+      await expect(dispatchCli(["alpha", "status"])).rejects.toThrow("process.exit:1");
+
+      const output = stderr.join("\n");
+      expect(output).toContain("Sandbox 'alpha' does not exist");
+      expect(output).not.toContain("Rebuild preflight failed");
+      expect(output).not.toContain("Aborting rebuild");
+    });
+  });
+
   it("does not admit other sandbox actions from a retained recovery record (#12260)", async () => {
     await withDirectPublicDispatch(
       async ({ dispatchCli, recoverRegistryEntries, runOclifCommandById }) => {

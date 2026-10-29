@@ -3,7 +3,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { printRebuildPreflightFailure } from "./rebuild-preflight-error";
+import {
+  printRebuildPreflightFailure,
+  printRebuildSandboxNotFound,
+} from "./rebuild-preflight-error";
 
 describe("printRebuildPreflightFailure (#7794)", () => {
   beforeEach(() => {
@@ -47,5 +50,26 @@ describe("printRebuildPreflightFailure (#7794)", () => {
     );
 
     expect(bail).toHaveBeenCalledWith("pending policy transition", 1);
+  });
+});
+
+describe("printRebuildSandboxNotFound (#13808)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("names the missing sandbox and aborts rebuild", () => {
+    const bail = vi.fn() as unknown as (message: string, code?: number) => never;
+
+    printRebuildSandboxNotFound("ghost", bail);
+
+    const output = (console.error as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(output).toContain("Rebuild preflight failed: ");
+    expect(output).toContain("sandbox 'ghost' not found in registry.");
+    expect(output).toContain("Verify the sandbox name and rerun rebuild.");
+    expect(output).toContain("Aborting rebuild");
+    expect(bail).toHaveBeenCalledWith("Sandbox 'ghost' not found in registry.");
   });
 });

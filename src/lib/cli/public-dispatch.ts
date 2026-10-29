@@ -61,10 +61,12 @@ const PUBLIC_ARGV_OPTIONS: NormalizeArgvOptions = {
 type RegistryModule = typeof import("../state/registry");
 type RegistryRecoveryModule = typeof import("../registry-recovery-action");
 type SandboxConnectModule = typeof import("../actions/sandbox/connect");
+type RebuildPreflightErrorModule = typeof import("../actions/sandbox/rebuild-preflight-error");
 
 let registryModule: RegistryModule | null = null;
 let registryRecoveryModule: RegistryRecoveryModule | null = null;
 let sandboxConnectModule: SandboxConnectModule | null = null;
+let rebuildPreflightErrorModule: RebuildPreflightErrorModule | null = null;
 
 function registry(): RegistryModule {
   registryModule ??= require("../state/registry") as RegistryModule;
@@ -79,6 +81,12 @@ function registryRecovery(): RegistryRecoveryModule {
 function sandboxConnect(): SandboxConnectModule {
   sandboxConnectModule ??= require("../actions/sandbox/connect") as SandboxConnectModule;
   return sandboxConnectModule;
+}
+
+function rebuildPreflightError(): RebuildPreflightErrorModule {
+  rebuildPreflightErrorModule ??=
+    require("../actions/sandbox/rebuild-preflight-error") as RebuildPreflightErrorModule;
+  return rebuildPreflightErrorModule;
 }
 
 function isPublicSandboxConnectFlag(arg: string | undefined): boolean {
@@ -434,6 +442,12 @@ async function recoverRequestedSandboxIfNeeded(
     }
   } else {
     console.error(`  Run '${CLI_NAME} onboard' to create one.`);
+  }
+  // The registry gate runs before rebuild's own preflight, so frame the stop here (#13808).
+  if (action === "rebuild") {
+    rebuildPreflightError().printRebuildSandboxNotFound(sandboxName, (_message, code = 1) =>
+      process.exit(code),
+    );
   }
   process.exit(1);
 }

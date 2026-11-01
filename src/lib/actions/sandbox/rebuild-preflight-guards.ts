@@ -33,6 +33,7 @@ import type { RebuildBail } from "./rebuild-credential-preflight";
 import type { RebuildSandboxEntry } from "./rebuild-flow-helpers";
 import type { RebuildVersionCheck } from "./rebuild-preflight-confirmation";
 import {
+  printRebuildLockBusy,
   printRebuildPreflightFailure,
   printRebuildSandboxNotFound,
 } from "./rebuild-preflight-error";
@@ -425,12 +426,7 @@ export function acquireRebuildOnboardLock(
     const remediation = lock.stale
       ? "Wait briefly, then rerun rebuild so verified stale-lock cleanup can finish."
       : `Wait for the other run to finish, then rerun rebuild.${pidDetail}`;
-    printRebuildPreflightFailure(
-      `another ${CLI_NAME} onboarding run is already in progress.`,
-      remediation,
-      "Could not acquire onboard lock before rebuild",
-      bail,
-    );
+    printRebuildLockBusy(remediation, bail);
     return null;
   }
   try {

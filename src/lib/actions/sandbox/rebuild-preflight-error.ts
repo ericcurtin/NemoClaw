@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { RD as _RD, R } from "../../cli/terminal-style";
+import { ProcessBoundLockContentionError } from "../../state/registry/lock";
 import type { RebuildBail } from "./rebuild-credential-preflight";
 
 export function printRebuildPreflightFailure(
@@ -28,6 +29,25 @@ export function printRebuildSandboxNotFound(sandboxName: string, bail: RebuildBa
     `sandbox '${sandboxName}' not found in registry.`,
     "Verify the sandbox name and rerun rebuild.",
     `Sandbox '${sandboxName}' not found in registry.`,
+    bail,
+  );
+}
+
+/** Stop rebuild while another run holds a lifecycle lock. */
+export function printRebuildLockBusy(remediation: string, bail: RebuildBail): void {
+  printRebuildPreflightFailure(
+    "another onboarding or rebuild run is already in progress.",
+    remediation,
+    "Could not acquire onboard lock before rebuild",
+    bail,
+  );
+}
+
+/** Frame a lock contention error as a rebuild stop. Other errors are ignored. */
+export function printRebuildLockContention(error: unknown, bail: RebuildBail): void {
+  if (!(error instanceof ProcessBoundLockContentionError)) return;
+  printRebuildLockBusy(
+    error.remediation ?? "Wait for the other run to finish, then rerun rebuild.",
     bail,
   );
 }

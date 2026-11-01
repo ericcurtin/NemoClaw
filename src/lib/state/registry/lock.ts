@@ -37,7 +37,11 @@ export type RegistryLockDecision = "break" | "wait";
 export type ProcessBoundLockHandle = object;
 
 export class ProcessBoundLockContentionError extends Error {
-  constructor(directory: string, retries: number, remediation?: string) {
+  constructor(
+    directory: string,
+    retries: number,
+    readonly remediation?: string,
+  ) {
     super(
       `Failed to acquire lock on ${directory} after ${String(retries)} retries${
         remediation === undefined ? "" : `. ${remediation}`

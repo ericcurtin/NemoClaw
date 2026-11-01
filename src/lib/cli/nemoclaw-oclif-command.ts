@@ -27,6 +27,7 @@ import {
   withCurrentPortableHostFenceTry,
 } from "../state/portable-uninstall-retirement";
 import { withSandboxLifecycleLock } from "../actions/sandbox/lifecycle/lock";
+import { printRebuildLockContention } from "../actions/sandbox/rebuild-preflight-error";
 import { withUnlockedSandboxStatusRead } from "../actions/sandbox/status-snapshot";
 import { listInferenceRouteOwnersAcrossGatewayRoots } from "../state/registry/cross-port";
 import {
@@ -281,7 +282,18 @@ export abstract class NemoClawCommand extends Command {
         });
       }
     }
-    return await withSandboxLifecycleLock(sandboxName, runLocked);
+    let started = false;
+    try {
+      return await withSandboxLifecycleLock(sandboxName, () => {
+        started = true;
+        return runLocked();
+      });
+    } catch (error) {
+      if (!started && commandId === "sandbox:rebuild") {
+        printRebuildLockContention(error, (_message, code = 1) => this.exit(code));
+      }
+      throw error;
+    }
   }
 
   /** Allow a command to transfer complete ownership before host-wide fences are acquired. */

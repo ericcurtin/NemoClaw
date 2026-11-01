@@ -14,7 +14,11 @@ import { portableDemoReceiptPath } from "../onboard/experimental/portable-runtim
 import * as portableHostAuthority from "../state/portable-uninstall-retirement";
 import * as registryCrossPort from "../state/registry/cross-port";
 import { isUnlockedSandboxStatusRead } from "../actions/sandbox/status-snapshot";
-import { acquireProcessBoundLockAt, releaseProcessBoundLock } from "../state/registry/lock";
+import {
+  acquireProcessBoundLockAt,
+  ProcessBoundLockContentionError,
+  releaseProcessBoundLock,
+} from "../state/registry/lock";
 import {
   isMcpLifecycleLockHeld,
   withMcpLifecycleLock,
@@ -162,6 +166,18 @@ class ProbeOnlyConnectCommand extends NemoClawCommand {
   }
 }
 
+class RebuildLockCommand extends NemoClawCommand {
+  static id = "sandbox:rebuild";
+  static args = { sandboxName: Args.string({ required: true }) };
+  static flags = {};
+  static ran = false;
+
+  public async run(): Promise<void> {
+    await this.parse(RebuildLockCommand);
+    RebuildLockCommand.ran = true;
+  }
+}
+
 class PortableStartCommand extends NemoClawCommand {
   static id = "sandbox:start";
   static args = { sandboxName: Args.string({ required: true }) };
@@ -288,6 +304,7 @@ describe("NemoClawCommand", () => {
     GlobalUnsupportedMutationCommand.ran = false;
     GlobalUseMutationCommand.ran = false;
     ProbeOnlyConnectCommand.operation = async () => undefined;
+    RebuildLockCommand.ran = false;
     PortableStartCommand.observed = { host: false, lifecycle: false, portableLifecycle: false };
     PortableLaunchCommand.observed = { host: false, lifecycle: false, portableLifecycle: false };
     PortableLaunchCommand.operation = async () => undefined;
@@ -598,6 +615,23 @@ describe("NemoClawCommand", () => {
       "not supported for an experimental Hermes portable sandbox",
     );
     expect(ParsedUnsupportedSandboxCommand.ran).toBe(false);
+  });
+
+  it("frames host lock contention as a rebuild preflight stop (#13808)", async () => {
+    vi.spyOn(portableHostAuthority, "withCurrentPortableHostFence").mockRejectedValue(
+      new ProcessBoundLockContentionError(stateDir, 1, "Recorded owner PID 42 is still running."),
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(RebuildLockCommand.run(["alpha"], process.cwd())).rejects.toMatchObject({
+      oclif: { exit: 1 },
+    });
+
+    const output = errorSpy.mock.calls.flat().join("\n");
+    expect(output).toContain("Rebuild preflight failed:");
+    expect(output).toContain("Recorded owner PID 42 is still running.");
+    expect(output).toContain("Aborting rebuild");
+    expect(RebuildLockCommand.ran).toBe(false);
   });
 
   it("holds the Portable host fence outside the probe-only lifecycle fence (#10423)", async () => {

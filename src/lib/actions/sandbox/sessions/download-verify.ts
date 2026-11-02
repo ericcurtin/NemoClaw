@@ -437,10 +437,8 @@ function replaceWithPrivateEntry(
   parent: DirectoryHandle,
 ): void {
   const noFollow = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
-  const temporaryPath = path.join(
-    parent.path,
-    `.${path.basename(destination)}.nemoclaw-${process.pid}-${randomUUID()}.tmp`,
-  );
+  // Omit the destination name: it can already fill the filesystem name limit.
+  const temporaryPath = path.join(parent.path, `.nemoclaw-${process.pid}-${randomUUID()}.tmp`);
   let temporaryFd: number | null = null;
   let temporaryExists = false;
   try {

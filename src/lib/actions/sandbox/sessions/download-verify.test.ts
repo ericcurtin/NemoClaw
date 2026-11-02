@@ -402,4 +402,17 @@ describe("publishDownloadArtifact", () => {
 
     expect(fs.readFileSync(destination, "utf8")).toBe("new");
   });
+
+  it("publishes a file whose 240-byte name is valid on the host (#14057)", () => {
+    const staged = path.join(dir, "staged");
+    const destination = path.join(dir, "destination");
+    const name = "a".repeat(240);
+    fs.mkdirSync(staged);
+    fs.writeFileSync(path.join(staged, name), "payload");
+
+    publishDownloadArtifact(staged, destination, "dir");
+
+    expect(fs.readdirSync(destination)).toEqual([name]);
+    expect(fs.readFileSync(path.join(destination, name), "utf8")).toBe("payload");
+  });
 });

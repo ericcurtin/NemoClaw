@@ -17,6 +17,8 @@ export interface GatewayPortListenerRawScan {
   pids: number[];
   /** False when lsof could not authoritatively enumerate the whole listener set. */
   complete: boolean;
+  /** True when the lsof binary could not be run at all (not installed). */
+  listenerToolMissing?: true;
 }
 
 export interface DockerDriverGatewayPortListenerScan extends GatewayPortListenerRawScan {
@@ -129,9 +131,11 @@ export function createDockerDriverGatewayPortListenerHelpers(
     const candidates = new Set<number>();
 
     let result: ListenerCaptureResult;
+    let threw = false;
     try {
       result = deps.runCaptureEx(["lsof", "-ti", `:${currentGatewayPort()}`, "-sTCP:LISTEN"]);
     } catch {
+      threw = true;
       result = { stdout: "", exitCode: null, timedOut: false };
     }
     // Status 1 means "no listeners" only when the independent port probe also
@@ -143,7 +147,12 @@ export function createDockerDriverGatewayPortListenerHelpers(
     }
 
     const alive = opts.isPidAliveFn ?? deps.isPidAlive;
-    return { pids: Array.from(candidates).filter((pid) => alive(pid)), complete };
+    const listenerToolMissing = !threw && result.exitCode === null && !result.timedOut;
+    return {
+      pids: Array.from(candidates).filter((pid) => alive(pid)),
+      complete,
+      ...(listenerToolMissing ? { listenerToolMissing } : {}),
+    };
   }
 
   function getDockerDriverGatewayPortListenerScan(
@@ -167,6 +176,7 @@ export function createDockerDriverGatewayPortListenerHelpers(
       pids: verifiedPids,
       unverifiedPids: livePids.filter((pid) => !verifiedPids.includes(pid)),
       complete: raw.complete,
+      ...(raw.listenerToolMissing ? { listenerToolMissing: raw.listenerToolMissing } : {}),
     };
   }
 
@@ -175,15 +185,24 @@ export function createDockerDriverGatewayPortListenerHelpers(
     opts: DockerDriverGatewayServicePortOwnershipOptions,
   ): DockerDriverGatewayServicePortOwnership {
     const portListenerScan = getDockerDriverGatewayPortListenerScan(portCheck, opts);
-    const reportUntrustedGatewayPort = (message: string): never => {
-      const detail =
-        `Refusing to start a second OpenShell gateway: ${message}. ` +
-        `Inspect port ${currentGatewayPort()} and stop only its owning process before retrying.`;
+    const refuse = (message: string, next: string): never => {
+      const detail = `Refusing to start a second OpenShell gateway: ${message}. ${next}`;
       (opts.logError ?? console.error)(`  ${detail}`);
       if (opts.exitOnFailure) process.exit(1);
       throw new Error(detail);
     };
+    const reportUntrustedGatewayPort = (message: string): never =>
+      refuse(
+        message,
+        `Inspect port ${currentGatewayPort()} and stop only its owning process before retrying.`,
+      );
     const validatePortOwner = () => {
+      if (portListenerScan.listenerToolMissing) {
+        refuse(
+          "lsof is not installed, so the owner of the gateway port cannot be checked",
+          "Install lsof (apt install lsof, dnf install lsof, or pacman -S lsof), then retry.",
+        );
+      }
       if (!portListenerScan.complete || portListenerScan.unverifiedPids.length > 0) {
         reportUntrustedGatewayPort(
           "the gateway port has an unknown or incompletely observed listener",

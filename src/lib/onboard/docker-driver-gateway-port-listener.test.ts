@@ -159,6 +159,21 @@ describe("Docker-driver gateway port listener discovery", () => {
     expect(preparePort).not.toHaveBeenCalled();
   });
 
+  it("names a missing lsof instead of an unknown listener", () => {
+    const preparePort = vi.fn();
+    const { helpers } = makeHelpers({
+      runCaptureEx: vi.fn(() => ({ stdout: "", exitCode: null, timedOut: false })),
+    });
+    const ownership = helpers.createGatewayServicePortOwnership(
+      { ok: true },
+      { exitOnFailure: false, preparePort, logError: vi.fn() },
+    );
+
+    expect(ownership.portListenerScan.listenerToolMissing).toBe(true);
+    expect(() => ownership.validatePortOwner()).toThrow("lsof is not installed");
+    expect(preparePort).not.toHaveBeenCalled();
+  });
+
   it("rejects a listener that appears after the service-port bind probe", () => {
     const { helpers } = makeHelpers({
       runCaptureEx: vi.fn(() => ({ stdout: "1234\n", exitCode: 0, timedOut: false })),

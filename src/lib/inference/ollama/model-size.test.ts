@@ -91,6 +91,14 @@ describe("probeRegistrySize", () => {
     expect(probeRegistrySize("qwen3.5:9b", captureReturning("{}"))).toBeNull();
   });
 
+  it.each(["null", "42", "[]"])("returns null when the manifest is %s", (body) => {
+    expect(probeRegistrySize("qwen3.5:9b", captureReturning(body))).toBeNull();
+  });
+
+  it("falls back to the bundled estimate when the manifest is null", () => {
+    expect(getOllamaModelSize("qwen3.5:9b", captureReturning("null"))?.source).toBe("fallback");
+  });
+
   it("returns null when a layer has a non-numeric size", () => {
     const bad = JSON.stringify({ layers: [{ size: "huge" }] });
     expect(probeRegistrySize("qwen3.5:9b", captureReturning(bad))).toBeNull();

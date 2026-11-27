@@ -25,10 +25,6 @@ export interface SizeLookup {
   source: SizeSource;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 const OLLAMA_REF_SEGMENT_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 function splitNamespaceAndTag(model: string): { namespace: string; tag: string } | null {
@@ -73,14 +69,14 @@ export function probeRegistrySize(model: string, capture: CaptureFn = runCapture
     return null;
   }
 
-  if (!isRecord(parsed)) return null;
-  const layers = parsed.layers;
+  if (parsed === null || typeof parsed !== "object") return null;
+  const layers = (parsed as { layers?: unknown }).layers;
   if (!Array.isArray(layers) || layers.length === 0) return null;
 
   let total = 0;
   for (const layer of layers) {
-    if (!isRecord(layer)) return null;
-    const size = layer.size;
+    if (layer === null || typeof layer !== "object") return null;
+    const size = (layer as { size?: unknown }).size;
     if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
     total += size;
   }
